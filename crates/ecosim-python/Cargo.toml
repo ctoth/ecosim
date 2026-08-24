@@ -1,0 +1,22 @@
+[package]
+name = "ecosim-python"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Private Python extension for ecosim"
+publish = false
+
+[lib]
+name = "_core"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+ecosim-core = { path = "../ecosim-core" }
+num-bigint.workspace = true
+num-rational.workspace = true
+pyo3 = { workspace = true, features = ["abi3-py39", "generate-import-lib", "num-bigint"] }

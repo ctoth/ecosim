@@ -1,0 +1,9 @@
+/.venv/
+/target/
+/dist/
+/.pytest_cache/
+/.hypothesis/
+/src/ecosim/_core.pyd
+/src/ecosim/_core.pdb
+**/__pycache__/
+*.pyc

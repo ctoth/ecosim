@@ -1,0 +1,22 @@
+[package]
+name = "ecosim-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Exact conservation kernel for ecosystem simulations"
+publish = false
+
+[dependencies]
+conservation-core = { git = "https://github.com/ctoth/conservation.git", rev = "7a0653834681ad82846702baa99df3d7500235e1" }
+conservation-linear = { git = "https://github.com/ctoth/conservation.git", rev = "7a0653834681ad82846702baa99df3d7500235e1" }
+conservation-trace = { git = "https://github.com/ctoth/conservation.git", rev = "7a0653834681ad82846702baa99df3d7500235e1" }
+institution = { version = "0.1.0", path = "../../../institution" }
+institution-conservation = { version = "0.1.0", path = "../../../institution/institution-conservation" }
+num-bigint.workspace = true
+num-rational.workspace = true
+num-traits.workspace = true
+
+[dev-dependencies]
+proptest = "1"

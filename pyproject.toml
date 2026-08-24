@@ -1,0 +1,45 @@
+[project]
+name = "ecosim"
+version = "0.1.0"
+description = "Exact, institution-aware ecosystem simulation"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+dependencies = [
+    "bridgman @ git+https://github.com/ctoth/bridgman.git@984c6e885711cc12e3c2cfaa0cecbc21b63c8032",
+]
+
+[build-system]
+requires = ["maturin>=1.10,<2.0"]
+build-backend = "maturin"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.0",
+    "maturin>=1.10,<2.0",
+    "pyright>=1.1",
+    "pytest>=8.0",
+]
+
+[tool.maturin]
+manifest-path = "crates/ecosim-python/Cargo.toml"
+python-source = "src"
+module-name = "ecosim._core"
+bindings = "pyo3"
+features = ["extension-module"]
+exclude = [
+    { path = "src/ecosim/*.pdb", format = ["sdist", "wheel"] },
+    { path = "src/ecosim/*.pyd", format = "sdist" },
+]
+include = [
+    { path = ".cargo/config.toml", format = "sdist" },
+    { path = "LICENSE", format = "sdist" },
+]
+
+[tool.pyright]
+include = ["src/ecosim", "tests"]
+typeCheckingMode = "strict"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

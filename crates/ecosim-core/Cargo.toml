@@ -9,11 +9,13 @@ description = "Exact conservation kernel for ecosystem simulations"
 publish = false
 
 [dependencies]
-conservation-core = { git = "https://github.com/ctoth/conservation.git", rev = "7a0653834681ad82846702baa99df3d7500235e1" }
-conservation-linear = { git = "https://github.com/ctoth/conservation.git", rev = "7a0653834681ad82846702baa99df3d7500235e1" }
-conservation-trace = { git = "https://github.com/ctoth/conservation.git", rev = "7a0653834681ad82846702baa99df3d7500235e1" }
-institution = { version = "0.1.0", path = "../../../institution" }
-institution-conservation = { version = "0.1.0", path = "../../../institution/institution-conservation" }
+conservation-core = { git = "https://github.com/ctoth/conservation.git", rev = "9b336f742c282973965eb893c9c40399540be44b" }
+conservation-dynamics = { git = "https://github.com/ctoth/conservation.git", rev = "9b336f742c282973965eb893c9c40399540be44b" }
+conservation-linear = { git = "https://github.com/ctoth/conservation.git", rev = "9b336f742c282973965eb893c9c40399540be44b" }
+conservation-trace = { git = "https://github.com/ctoth/conservation.git", rev = "9b336f742c282973965eb893c9c40399540be44b" }
+institution = { git = "https://github.com/ctoth/institution.git", rev = "328608dd3c5816b3368fd83680cfc241795aadaa" }
+institution-conservation = { git = "https://github.com/ctoth/institution.git", rev = "328608dd3c5816b3368fd83680cfc241795aadaa" }
+libm.workspace = true
 num-bigint.workspace = true
 num-rational.workspace = true
 num-traits.workspace = true

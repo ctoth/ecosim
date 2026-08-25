@@ -8,6 +8,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.9"
 dependencies = [
     "bridgman @ git+https://github.com/ctoth/bridgman.git@984c6e885711cc12e3c2cfaa0cecbc21b63c8032",
+    "numpy>=1.23",
 ]
 
 [build-system]

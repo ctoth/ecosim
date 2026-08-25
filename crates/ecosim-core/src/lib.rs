@@ -2,6 +2,14 @@
 
 //! Exact energy accounting for the first ecosystem simulation slice.
 
+mod food_web;
+pub mod paper_models;
+
+pub use food_web::{
+    DenseFoodWeb, DenseFoodWebParameters, DenseFoodWebStep, FoodWeb, FoodWebError,
+    FoodWebParameters, FoodWebStep,
+};
+
 use std::error::Error as StdError;
 use std::fmt;
 
@@ -416,6 +424,68 @@ mod tests {
     }
 
     proptest! {
+        #[test]
+        fn arbitrary_rejected_events_leave_no_partial_state(
+            left in 0_i64..1_000_000,
+            right in 0_i64..1_000_000,
+            excess in 1_i64..1_000_000,
+            negative_magnitude in 1_i64..1_000_000,
+        ) {
+            let world = World::new(integer(left), integer(right)).unwrap();
+
+            let mut attempted = world.clone();
+            prop_assert!(attempted.output(Compartment::Left, integer(left + excess)).is_err());
+            prop_assert_eq!(&attempted, &world);
+
+            let mut attempted = world.clone();
+            prop_assert!(attempted.transfer(
+                Compartment::Right,
+                Compartment::Left,
+                integer(right + excess),
+            ).is_err());
+            prop_assert_eq!(&attempted, &world);
+
+            let mut attempted = world.clone();
+            prop_assert!(attempted.input(Compartment::Left, integer(-negative_magnitude)).is_err());
+            prop_assert_eq!(&attempted, &world);
+
+            let mut attempted = world.clone();
+            prop_assert!(attempted.transfer(
+                Compartment::Left,
+                Compartment::Left,
+                integer(0),
+            ).is_err());
+            prop_assert_eq!(&attempted, &world);
+        }
+
+        #[test]
+        fn splitting_and_merging_same_role_events_preserves_observable_balance(
+            initial in 0_i64..1_000_000,
+            first in 0_i64..1_000_000,
+            second in 0_i64..1_000_000,
+        ) {
+            let mut merged_input = World::new(integer(initial), integer(0)).unwrap();
+            merged_input.input(Compartment::Left, integer(first + second)).unwrap();
+            let mut split_input = World::new(integer(initial), integer(0)).unwrap();
+            split_input.input(Compartment::Left, integer(first)).unwrap();
+            split_input.input(Compartment::Left, integer(second)).unwrap();
+            prop_assert_eq!(merged_input.stock(Compartment::Left), split_input.stock(Compartment::Left));
+            prop_assert_eq!(merged_input.stock(Compartment::Right), split_input.stock(Compartment::Right));
+            prop_assert_eq!(merged_input.net_external(), split_input.net_external());
+            prop_assert_eq!(merged_input.report(), split_input.report());
+
+            let total = first + second;
+            let mut merged_transfer = World::new(integer(total), integer(0)).unwrap();
+            merged_transfer.transfer(Compartment::Left, Compartment::Right, integer(total)).unwrap();
+            let mut split_transfer = World::new(integer(total), integer(0)).unwrap();
+            split_transfer.transfer(Compartment::Left, Compartment::Right, integer(first)).unwrap();
+            split_transfer.transfer(Compartment::Left, Compartment::Right, integer(second)).unwrap();
+            prop_assert_eq!(merged_transfer.stock(Compartment::Left), split_transfer.stock(Compartment::Left));
+            prop_assert_eq!(merged_transfer.stock(Compartment::Right), split_transfer.stock(Compartment::Right));
+            prop_assert_eq!(merged_transfer.net_external(), split_transfer.net_external());
+            prop_assert_eq!(merged_transfer.report(), split_transfer.report());
+        }
+
         #[test]
         fn arbitrary_valid_event_sequences_preserve_the_derived_law(
             events in prop::collection::vec((0_u8..6, 0_u16..10_000), 1..64)

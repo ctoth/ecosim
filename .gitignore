@@ -7,3 +7,5 @@
 /src/ecosim/_core.pdb
 **/__pycache__/
 *.pyc
+*.[pP][dD][fF]
+*.[pP][nN][gG]

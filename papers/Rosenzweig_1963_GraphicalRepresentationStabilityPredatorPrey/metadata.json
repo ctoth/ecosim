@@ -1,0 +1,16 @@
+{
+  "title": "Graphical Representation and Stability Conditions of Predator-Prey Interactions",
+  "authors": [
+    "M. Rosenzweig",
+    "R. Macarthur"
+  ],
+  "year": "1963",
+  "doi": "10.1086/282272",
+  "url": "https://www.semanticscholar.org/paper/d95dcce4a70c0ad4fc7b008cb3c40e939cf521ee",
+  "pdf_url": "",
+  "bibtex": "@Article{Rosenzweig1963GraphicalRA,\n author = {M. Rosenzweig and R. Macarthur},\n booktitle = {American Naturalist},\n journal = {The American Naturalist},\n pages = {209 - 223},\n title = {Graphical Representation and Stability Conditions of Predator-Prey Interactions},\n volume = {97},\n year = {1963}\n}\n",
+  "venue": "American Naturalist",
+  "venue_type": "journal",
+  "volume": "97",
+  "pages": "209 - 223"
+}

@@ -1,0 +1,16 @@
+{
+  "title": "Biodiversity and ecosystem stability: a synthesis of underlying mechanisms.",
+  "authors": [
+    "M. Loreau",
+    "Claire de Mazancourt"
+  ],
+  "year": "2013",
+  "doi": "10.1111/ele.12073",
+  "url": "https://www.semanticscholar.org/paper/09e4670818d37da2def55dec4f40aa8bd649cdd5",
+  "pdf_url": "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/ele.12073",
+  "bibtex": "@Article{Loreau2013BiodiversityAE,\n author = {M. Loreau and Claire de Mazancourt},\n booktitle = {Ecology Letters},\n journal = {Ecology letters},\n pages = {\n          106-15\n        },\n title = {Biodiversity and ecosystem stability: a synthesis of underlying mechanisms.},\n volume = {16 Suppl 1},\n year = {2013}\n}\n",
+  "venue": "Ecology Letters",
+  "venue_type": "journal",
+  "volume": "16 Suppl 1",
+  "pages": "\n          106-15\n        "
+}

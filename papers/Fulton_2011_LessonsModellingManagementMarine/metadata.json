@@ -1,0 +1,25 @@
+{
+  "title": "Lessons in modelling and management of marine ecosystems: the Atlantis experience",
+  "authors": [
+    "E. Fulton",
+    "J. Link",
+    "I. Kaplan",
+    "Marie Savina-Rolland",
+    "Penelope Johnson",
+    "C. Ainsworth",
+    "P. J. Horne",
+    "Rebecca Gorton",
+    "R. Gamble",
+    "Anthony D. M. Smith",
+    "David C. Smith"
+  ],
+  "year": "2011",
+  "doi": "10.1111/J.1467-2979.2011.00412.X",
+  "abstract": "Models are key tools for integrating a wide range of system information in a common framework. Attempts to model exploited marine ecosystems can increase understanding of system dynamics; identify major processes, drivers and responses; highlight major gaps in knowledge; and provide a mechanism to ‘road test’ management strategies before implementing them in reality. The Atlantis modelling framework has been used in these roles for a decade and is regularly being modified and applied to new questions (e.g. it is being coupled to climate, biophysical and economic models to help consider climate change impacts, monitoring schemes and multiple use management). This study describes some common lessons learned from its implementation, particularly in regard to when these tools are most effective and the likely form of best practices for ecosystem-based management (EBM). Most importantly, it highlighted that no single management lever is sufficient to address the many trade-offs associated with EBM and that the mix of measures needed to successfully implement EBM will differ between systems and will change through time. Although it is doubtful that any single management action will be based solely on Atlantis, this modelling approach continues to provide important insights for managers when making natural resource management decisions.",
+  "url": "https://www.semanticscholar.org/paper/db202a68646784dde4cd6cec14bcc74830fd0e0c",
+  "pdf_url": "https://figshare.com/articles/journal_contribution/Lessons_in_modelling_and_management_of_marine_ecosystems_The_Atlantis_experience/22957214",
+  "bibtex": "@Article{Fulton2011LessonsIM,\n author = {E. Fulton and J. Link and I. Kaplan and Marie Savina-Rolland and Penelope Johnson and C. Ainsworth and P. J. Horne and Rebecca Gorton and R. Gamble and Anthony D. M. Smith and David C. Smith},\n journal = {Fish and Fisheries},\n pages = {171-188},\n title = {Lessons in modelling and management of marine ecosystems: the Atlantis experience},\n volume = {12},\n year = {2011}\n}\n",
+  "venue": "Fish and Fisheries",
+  "volume": "12",
+  "pages": "171-188"
+}

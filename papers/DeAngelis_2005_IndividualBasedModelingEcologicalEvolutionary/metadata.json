@@ -1,0 +1,15 @@
+{
+  "title": "Individual-based modeling of ecological and evolutionary processes",
+  "authors": [
+    "D. DeAngelis",
+    "W. Mooij"
+  ],
+  "year": "2005",
+  "doi": "10.1146/ANNUREV.ECOLSYS.36.102003.152644",
+  "url": "https://www.semanticscholar.org/paper/13e29d4c04e2e9e5b8673aca73416cf668c2d5e7",
+  "pdf_url": "",
+  "bibtex": "@Article{DeAngelis2005IndividualbasedMO,\n author = {D. DeAngelis and W. Mooij},\n journal = {Annual Review of Ecology, Evolution, and Systematics},\n pages = {147-168},\n title = {Individual-based modeling of ecological and evolutionary processes},\n volume = {36},\n year = {2005}\n}\n",
+  "venue": "Annual Review of Ecology, Evolution, and Systematics",
+  "volume": "36",
+  "pages": "147-168"
+}

@@ -1,0 +1,17 @@
+{
+  "title": "Verification, Validation, and Confirmation of Numerical Models in the Earth Sciences",
+  "authors": [
+    "N. Oreskes",
+    "K. Shrader-Frechette",
+    "K. Belitz"
+  ],
+  "year": "1994",
+  "doi": "10.1126/science.263.5147.641",
+  "url": "https://www.semanticscholar.org/paper/9ee5f4ae37016d3524cc45ed04ed457fa017c0a9",
+  "pdf_url": "https://web.pdx.edu/~changh/Oreskes%20et%20al.1994.pdf",
+  "bibtex": "@Article{Oreskes1994VerificationVA,\n author = {N. Oreskes and K. Shrader-Frechette and K. Belitz},\n booktitle = {Science},\n journal = {Science},\n pages = {641 - 646},\n title = {Verification, Validation, and Confirmation of Numerical Models in the Earth Sciences},\n volume = {263},\n year = {1994}\n}\n",
+  "venue": "Science",
+  "venue_type": "journal",
+  "volume": "263",
+  "pages": "641 - 646"
+}

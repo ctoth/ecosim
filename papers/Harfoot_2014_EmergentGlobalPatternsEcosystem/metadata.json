@@ -1,0 +1,23 @@
+{
+  "title": "Emergent Global Patterns of Ecosystem Structure and Function from a Mechanistic General Ecosystem Model",
+  "authors": [
+    "M. Harfoot",
+    "T. Newbold",
+    "D. Tittensor",
+    "S. Emmott",
+    "J. Hutton",
+    "Vassily Lyutsarev",
+    "Matthew J. Smith",
+    "J. Scharlemann",
+    "D. Purves"
+  ],
+  "year": "2014",
+  "doi": "10.1371/journal.pbio.1001841",
+  "abstract": "This paper presents the first mathematical model that attempts to represent the biology and behavior of all individual organisms globally, taking us a step closer to holistic ecological and conservation science founded on mechanistic predictions.",
+  "url": "https://www.semanticscholar.org/paper/e5ceaa6976ec15c67e9fcc10492b8dd532411042",
+  "pdf_url": "https://journals.plos.org/plosbiology/article/file?id=10.1371/journal.pbio.1001841&type=printable",
+  "bibtex": "@Article{Harfoot2014EmergentGP,\n author = {M. Harfoot and T. Newbold and D. Tittensor and S. Emmott and J. Hutton and Vassily Lyutsarev and Matthew J. Smith and J. Scharlemann and D. Purves},\n booktitle = {PLoS Biology},\n journal = {PLoS Biology},\n title = {Emergent Global Patterns of Ecosystem Structure and Function from a Mechanistic General Ecosystem Model},\n volume = {12},\n year = {2014}\n}\n",
+  "venue": "PLoS Biology",
+  "venue_type": "journal",
+  "volume": "12"
+}

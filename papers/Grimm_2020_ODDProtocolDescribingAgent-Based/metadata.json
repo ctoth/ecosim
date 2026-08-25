@@ -1,0 +1,33 @@
+{
+  "title": "The ODD Protocol for Describing Agent-Based and Other Simulation Models: A Second Update to Improve Clarity, Replication, and Structural Realism",
+  "authors": [
+    "V. Grimm",
+    "S. Railsback",
+    "C. Vincenot",
+    "U. Berger",
+    "Cara A Gallagher",
+    "D. DeAngelis",
+    "B. Edmonds",
+    "Jiaqi Ge",
+    "J. Giske",
+    "J. Groeneveld",
+    "Alice S. A. Johnston",
+    "Alexander Milles",
+    "J. Nabe‐Nielsen",
+    "J. Gareth Polhill",
+    "V. Radchuk",
+    "Marie‐Sophie Rohwäder",
+    "R. Stillman",
+    "Jan C. Thiele",
+    "D. Ayllón"
+  ],
+  "year": "2020",
+  "doi": "10.18564/jasss.4259",
+  "abstract": "© 2020, University of Surrey. All rights reserved. The Overview, Design concepts and Details (ODD) protocol for describing Individual-and Agent-Based Models (ABMs) is now widely accepted and used to document such models in journal articles. As a standardized document for providing a consistent, logical and readable account of the structure and dynamics of ABMs, some research groups also find it useful as a workflow for model design. Even so, there are still limitations to ODD that obstruct its more widespread adoption. Such limitations are discussed and addressed in this paper: the limited availability of guidance on how to use ODD; the length of ODD documents; limitations of ODD for highly complex models; lack of sufficient details of many ODDs to enable reimplementation without access to the model code; and the lack of provision for sections in the document structure covering model design ratio-nale, the model’s underlying narrative, and the means by which the model’s fitness for purpose is evaluated. We document the steps we have taken to provide better guidance on: structuring complex ODDs and an ODD summary for inclusion in a journal article (with full details in supplementary material; Table 1); using ODD to point readers to relevant sections of the model code; update the document structure to include sections on model rationale and evaluation. We also further advocate the need for standard descriptions of simulation experiments and argue that ODD can in principle be used for any type of simulation model. Thereby ODD would provide a lingua franca for simulation modelling.",
+  "url": "https://www.semanticscholar.org/paper/d6d8e7eae851ab79b5e4f398c1a3ddd1795e28e8",
+  "pdf_url": "http://jasss.soc.surrey.ac.uk/23/2/7/7.pdf",
+  "bibtex": "@Article{Grimm2020TheOP,\n author = {V. Grimm and S. Railsback and C. Vincenot and U. Berger and Cara A Gallagher and D. DeAngelis and B. Edmonds and Jiaqi Ge and J. Giske and J. Groeneveld and Alice S. A. Johnston and Alexander Milles and J. Nabe‐Nielsen and J. Gareth Polhill and V. Radchuk and Marie‐Sophie Rohwäder and R. Stillman and Jan C. Thiele and D. Ayllón},\n booktitle = {Journal of Artificial Societies and Social Simulation},\n journal = {J. Artif. Soc. Soc. Simul.},\n title = {The ODD Protocol for Describing Agent-Based and Other Simulation Models: A Second Update to Improve Clarity, Replication, and Structural Realism},\n volume = {23},\n year = {2020}\n}\n",
+  "venue": "Journal of Artificial Societies and Social Simulation",
+  "venue_type": "journal",
+  "volume": "23"
+}

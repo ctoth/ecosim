@@ -1,0 +1,18 @@
+{
+  "cite_key": "lindeman1942trophic",
+  "title": "The Trophic-Dynamic Aspect of Ecology",
+  "authors": [
+    "Raymond L. Lindeman"
+  ],
+  "year": "1942",
+  "doi": "10.2307/1930126",
+  "abstract": "The paper develops a trophic-dynamic account of ecosystems in terms of energy capture, transfer, productivity, efficiency, decomposition, dissipation, and succession.",
+  "document_type": "article",
+  "url": "https://doi.org/10.2307/1930126",
+  "pdf_url": "https://deploy.extras.ufg.br/projetos/adrimelo/ecossistemas/Lindeman1942.pdf",
+  "bibtex": "@Article{Lindeman1942TrophicDynamic,\n author = {Raymond L. Lindeman},\n journal = {Ecology},\n number = {4},\n pages = {399--417},\n title = {The Trophic-Dynamic Aspect of Ecology},\n volume = {23},\n year = {1942},\n doi = {10.2307/1930126}\n}\n",
+  "venue": "Ecology",
+  "volume": "23",
+  "issue": "4",
+  "pages": "399-417"
+}

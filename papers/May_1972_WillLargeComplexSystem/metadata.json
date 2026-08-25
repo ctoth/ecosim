@@ -1,0 +1,15 @@
+{
+  "title": "Will a Large Complex System be Stable?",
+  "authors": [
+    "R. May"
+  ],
+  "year": "1972",
+  "doi": "10.1038/238413A0",
+  "url": "https://www.semanticscholar.org/paper/c8b8e66692c4d3171d6f875266bf1916bf28299d",
+  "pdf_url": "",
+  "bibtex": "@Article{May1972WillAL,\n author = {R. May},\n booktitle = {Nature},\n journal = {Nature},\n pages = {413-414},\n title = {Will a Large Complex System be Stable?},\n volume = {238},\n year = {1972}\n}\n",
+  "venue": "Nature",
+  "venue_type": "journal",
+  "volume": "238",
+  "pages": "413-414"
+}

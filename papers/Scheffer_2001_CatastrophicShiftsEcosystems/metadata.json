@@ -1,0 +1,19 @@
+{
+  "title": "Catastrophic shifts in ecosystems",
+  "authors": [
+    "M. Scheffer",
+    "S. Carpenter",
+    "J. Foley",
+    "C. Folke",
+    "B. Walker"
+  ],
+  "year": "2001",
+  "doi": "10.1038/35098000",
+  "url": "https://www.semanticscholar.org/paper/faa8d78e3cbb1f1e814a2808c56f8d08f0a06c74",
+  "pdf_url": "https://research.wur.nl/en/publications/catastrophic-shifts-in-ecosystems",
+  "bibtex": "@Article{Scheffer2001CatastrophicSI,\n author = {M. Scheffer and S. Carpenter and J. Foley and C. Folke and B. Walker},\n booktitle = {Nature},\n journal = {Nature},\n pages = {591-596},\n title = {Catastrophic shifts in ecosystems},\n volume = {413},\n year = {2001}\n}\n",
+  "venue": "Nature",
+  "venue_type": "journal",
+  "volume": "413",
+  "pages": "591-596"
+}

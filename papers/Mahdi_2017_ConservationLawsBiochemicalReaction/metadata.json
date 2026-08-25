@@ -1,0 +1,21 @@
+{
+  "cite_key": "mahdi2017conservation",
+  "title": "Conservation Laws in Biochemical Reaction Networks",
+  "authors": [
+    "Adam Mahdi",
+    "A. Ferragut",
+    "C. Valls",
+    "C. Wiuf"
+  ],
+  "year": "2017",
+  "doi": "10.1137/17M1138418",
+  "abstract": "The paper studies conservation laws of biochemical reaction networks, relating linear laws to the left kernel of the stoichiometric matrix and examining additional nonlinear and parameter-dependent first integrals.",
+  "document_type": "article",
+  "url": "https://www.semanticscholar.org/paper/14d3d5217d66ece7442459fdd6b13128a4d9cc47",
+  "pdf_url": "http://hdl.handle.net/10234/174504",
+  "bibtex": "@Article{Mahdi2017ConservationLI,\n author = {Adam Mahdi and A. Ferragut and C. Valls and C. Wiuf},\n booktitle = {SIAM Journal on Applied Dynamical Systems},\n journal = {SIAM J. Appl. Dyn. Syst.},\n pages = {2213-2232},\n title = {Conservation Laws in Biochemical Reaction Networks},\n volume = {16},\n year = {2017}\n}\n",
+  "venue": "SIAM Journal on Applied Dynamical Systems",
+  "venue_type": "journal",
+  "volume": "16",
+  "pages": "2213-2232"
+}

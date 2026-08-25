@@ -1,0 +1,19 @@
+{
+  "title": "Statistical inference for stochastic simulation models--theory and application.",
+  "authors": [
+    "Florian Hartig",
+    "J. Calabrese",
+    "B. Reineking",
+    "T. Wiegand",
+    "A. Huth"
+  ],
+  "year": "2011",
+  "doi": "10.1111/j.1461-0248.2011.01640.x",
+  "url": "https://www.semanticscholar.org/paper/9009f1515f7c078c7c089eb2d4124139dbdeed55",
+  "pdf_url": "https://onlinelibrary.wiley.com/doi/pdf/10.1111/j.1461-0248.2011.01640.x",
+  "bibtex": "@Article{Hartig2011StatisticalIF,\n author = {Florian Hartig and J. Calabrese and B. Reineking and T. Wiegand and A. Huth},\n booktitle = {Ecology Letters},\n journal = {Ecology letters},\n pages = {\n          816-27\n        },\n title = {Statistical inference for stochastic simulation models--theory and application.},\n volume = {14 8},\n year = {2011}\n}\n",
+  "venue": "Ecology Letters",
+  "venue_type": "journal",
+  "volume": "14 8",
+  "pages": "\n          816-27\n        "
+}

@@ -1,0 +1,18 @@
+{
+  "cite_key": "goguen1992institutions",
+  "title": "Institutions: abstract model theory for specification and programming",
+  "authors": [
+    "J. Goguen",
+    "R. Burstall"
+  ],
+  "year": "1992",
+  "doi": "10.1145/147508.147524",
+  "abstract": "Institutions formalize logical systems independently of any particular syntax or semantics by relating signature morphisms, sentence translation, model reduct, and satisfaction through an invariance condition.",
+  "document_type": "article",
+  "url": "https://www.semanticscholar.org/paper/92df9f3b22fa57c51eaf0d999503756ea5d140f9",
+  "pdf_url": "https://dl.acm.org/doi/pdf/10.1145/147508.147524",
+  "bibtex": "@Article{Goguen1992InstitutionsAM,\n author = {J. Goguen and R. Burstall},\n booktitle = {JACM},\n journal = {J. ACM},\n pages = {95-146},\n title = {Institutions: abstract model theory for specification and programming},\n volume = {39},\n year = {1992}\n}\n",
+  "venue": "JACM",
+  "volume": "39",
+  "pages": "95-146"
+}

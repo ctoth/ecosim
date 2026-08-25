@@ -1,0 +1,14 @@
+{
+  "title": "Resilience and Stability of Ecological Systems",
+  "authors": [
+    "C. S. Holling"
+  ],
+  "year": "1973",
+  "doi": "10.1146/ANNUREV.ES.04.110173.000245",
+  "url": "https://www.semanticscholar.org/paper/0043cf9ba569181bd72305fa6989e22dd352c6b8",
+  "pdf_url": "http://pure.iiasa.ac.at/id/eprint/26/1/RP-73-003.pdf",
+  "bibtex": "@Article{Holling1973ResilienceAS,\n author = {C. S. Holling},\n journal = {Annual Review of Ecology, Evolution, and Systematics},\n pages = {1-23},\n title = {Resilience and Stability of Ecological Systems},\n volume = {4},\n year = {1973}\n}\n",
+  "venue": "Annual Review of Ecology, Evolution, and Systematics",
+  "volume": "4",
+  "pages": "1-23"
+}

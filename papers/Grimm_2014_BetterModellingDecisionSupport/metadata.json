@@ -1,0 +1,28 @@
+{
+  "title": "Towards better modelling and decision support: Documenting model development, testing, and analysis using TRACE",
+  "authors": [
+    "Volker Grimm",
+    "Volker Grimm",
+    "Jacqueline Augusiak",
+    "Andreas Focks",
+    "B. Frank",
+    "Faten Gabsi",
+    "Alice S. A. Johnston",
+    "Chun Liu",
+    "Chun Liu",
+    "Benjamin T. Martin",
+    "Benjamin T. Martin",
+    "Mattia Meli",
+    "Viktoriia Radchuk",
+    "P. Thorbek",
+    "S. Railsback"
+  ],
+  "year": "2014",
+  "doi": "10.1016/J.ECOLMODEL.2014.01.018",
+  "url": "https://www.semanticscholar.org/paper/c51a558d7285e66658425da0c025501d3d2c2c41",
+  "pdf_url": "https://research.wur.nl/en/publications/towards-better-modelling-and-decision-support-documenting-model-d",
+  "bibtex": "@Article{Grimm2014TowardsBM,\n author = {Volker Grimm and Volker Grimm and Jacqueline Augusiak and Andreas Focks and B. Frank and Faten Gabsi and Alice S. A. Johnston and Chun Liu and Chun Liu and Benjamin T. Martin and Benjamin T. Martin and Mattia Meli and Viktoriia Radchuk and P. Thorbek and S. Railsback},\n journal = {Ecological Modelling},\n pages = {129-139},\n title = {Towards better modelling and decision support: Documenting model development, testing, and analysis using TRACE},\n volume = {280},\n year = {2014}\n}\n",
+  "venue": "Ecological Modelling",
+  "volume": "280",
+  "pages": "129-139"
+}

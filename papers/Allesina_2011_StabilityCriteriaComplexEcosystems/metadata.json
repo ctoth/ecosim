@@ -1,0 +1,18 @@
+{
+  "title": "Stability criteria for complex ecosystems",
+  "authors": [
+    "Stefano Allesina",
+    "Si Tang"
+  ],
+  "year": "2011",
+  "arxiv_id": "1105.2071",
+  "doi": "10.1038/nature10832",
+  "abstract": "Forty years ago, May proved that sufficiently large or complex ecological networks have a probability of persisting that is close to zero, contrary to previous expectations. May analysed large networks in which species interact at random. However, in natural systems pairs of species have well-defined interactions (for example predator–prey, mutualistic or competitive). Here we extend May’s results to these relationships and find remarkable differences between predator–prey interactions, which are stabilizing, and mutualistic and competitive interactions, which are destabilizing. We provide analytic stability criteria for all cases. We use the criteria to prove that, counterintuitively, the probability of stability for predator–prey networks decreases when a realistic food web structure is imposed or if there is a large preponderance of weak interactions. Similarly, stability is negatively affected by nestedness in bipartite mutualistic networks. These results are found by separating the contribution of network structure and interaction strengths to stability. Stable predator–prey networks can be arbitrarily large and complex, provided that predator–prey pairs are tightly coupled. The stability criteria are widely applicable, because they hold for any system of differential equations.",
+  "url": "https://www.semanticscholar.org/paper/c392b34431cc1cbf26aa972a3776d9dc7d786b0b",
+  "pdf_url": "https://arxiv.org/pdf/1105.2071",
+  "bibtex": "@Article{Allesina2011StabilityCF,\n author = {Stefano Allesina and Si Tang},\n booktitle = {Nature},\n journal = {Nature},\n pages = {205-208},\n title = {Stability criteria for complex ecosystems},\n volume = {483},\n year = {2011}\n}\n",
+  "venue": "Nature",
+  "venue_type": "journal",
+  "volume": "483",
+  "pages": "205-208"
+}

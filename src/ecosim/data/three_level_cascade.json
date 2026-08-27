@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "status": "frozen-confirmatory",
+  "model_scope": "Abstract material-equivalent trophic model; not an empirical ecosystem validation",
+  "network": {
+    "producers": [
+      {
+        "name": "producer",
+        "max_growth": 0.5,
+        "nutrient_half_saturation": 10.0,
+        "mortality": 0.01
+      }
+    ],
+    "consumers": [
+      { "name": "herbivore", "mortality": 0.02 },
+      { "name": "predator", "mortality": 0.01 }
+    ],
+    "feedings": [
+      {
+        "consumer": "herbivore",
+        "resource": "producer",
+        "max_rate": 0.4,
+        "resource_half_saturation": 5.0,
+        "assimilation_efficiency": 0.7
+      },
+      {
+        "consumer": "predator",
+        "resource": "herbivore",
+        "max_rate": 0.02,
+        "resource_half_saturation": 1.0,
+        "assimilation_efficiency": 0.7
+      }
+    ],
+    "decomposition": 0.1
+  },
+  "initial_states": {
+    "predator_free": {
+      "nutrient": 100.0,
+      "producer": 10.0,
+      "herbivore": 5.0,
+      "predator": 0.0,
+      "detritus": 0.0
+    },
+    "predator_present": {
+      "nutrient": 100.0,
+      "producer": 10.0,
+      "herbivore": 5.0,
+      "predator": 1.0,
+      "detritus": 0.0
+    }
+  },
+  "simulation": {
+    "steps": 200,
+    "elapsed": 0.05,
+    "observation": "terminal"
+  },
+  "interventions": {
+    "nutrient_pulse": {
+      "at": 20,
+      "amount": 10.0
+    },
+    "predator_harvest_press": {
+      "consumer": "predator",
+      "start": 50,
+      "stop": 150,
+      "amount_per_step": 0.01
+    }
+  },
+  "confirmatory_claims": {
+    "predator_presence": {
+      "producer_terminal_delta_min": 0.5,
+      "herbivore_terminal_delta_max": -0.5
+    },
+    "nutrient_pulse": {
+      "producer_terminal_delta_min": 5.0,
+      "herbivore_terminal_delta_min": 0.1,
+      "predator_terminal_delta_min": 0.000001
+    },
+    "predator_harvest_press": {
+      "producer_terminal_delta_max": -0.1,
+      "herbivore_terminal_delta_min": 0.1,
+      "predator_terminal_delta_max": -0.5
+    }
+  },
+  "exact_audit": {
+    "steps": 5,
+    "elapsed": 0.05,
+    "nutrient_pulse_at": 0,
+    "predator_harvest_start": 0,
+    "predator_harvest_stop": 5,
+    "predator_harvest_amount_per_step": 0.01,
+    "required_response_signs": {
+      "predator_presence": {
+        "producer": "positive",
+        "herbivore": "negative"
+      },
+      "nutrient_pulse": {
+        "producer": "positive",
+        "herbivore": "positive",
+        "predator": "positive"
+      },
+      "predator_harvest_press": {
+        "producer": "negative",
+        "herbivore": "positive",
+        "predator": "negative"
+      }
+    }
+  },
+  "numerical_tolerances": {
+    "response_sign_epsilon": 1e-12,
+    "dense_balance_absolute": 5.684341886080802e-14,
+    "dense_balance_relative": 5.684341886080802e-14
+  }
+}

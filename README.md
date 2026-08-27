@@ -103,6 +103,29 @@ ledgers. Rejected steps append no trace state. Dense runs remain numerical: the
 declared balance diagnostic uses absolute and relative tolerances of
 `256 * f64::EPSILON` and is not represented as exact institutional evidence.
 
+## Three-level cascade experiment
+
+`TrophicIntervention`, `TrophicTrajectory`, and `TrophicResponse` form a small
+topology-independent experiment layer. Schedules are immutable and retain the
+compiled consumer axis; trajectories retain stock and consumer axes; response
+values are signed intervention-minus-control differences. `ExactTrophicAudit`
+attaches institutional evidence only to runs actually replayed by the exact
+plan.
+
+The first frozen experiment declares nutrient, producer, herbivore, predator,
+and detritus stocks. It compares predator presence, a nutrient pulse, and a
+predator-harvest press. Its source data, exploratory grid, confirmatory runner,
+and reports are separate:
+
+- `src/ecosim/data/three_level_cascade.json` is the frozen scenario;
+- `scripts/explore_three_level_cascade.py` reports the exploratory grid;
+- `scripts/run_three_level_cascade.py` emits dense results and exact evidence;
+- `reports/three-level-cascade-confirmation.md` records the interpretation;
+- `reports/ecosystem-economics-handoff.md` records the reuse decision.
+
+The observed behavior belongs to this declared abstract model and is not an
+empirical ecosystem validation.
+
 ## Paper benchmarks
 
 `ecosim_core::paper_models::almonacid_2020` independently implements the NPZD
@@ -143,7 +166,12 @@ uv sync
 uv run maturin develop
 uv run pytest
 uv run pyright
+cargo fmt --all -- --check
+cargo check --workspace --all-targets --all-features
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets
+uv run python scripts/explore_three_level_cascade.py
+uv run python scripts/run_three_level_cascade.py
 ```
 
 Cross-repository Rust dependencies are pinned to immutable reviewed Git

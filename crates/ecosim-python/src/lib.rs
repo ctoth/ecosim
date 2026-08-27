@@ -4,7 +4,7 @@ use ecosim_core::{
     BalanceReport, Compartment, ConsumerSpec, DenseFoodWeb, DenseFoodWebParameters,
     DenseFoodWebStep, DenseTrophicNetwork, DenseTrophicNetworkPlan, DenseTrophicNetworkStep,
     ExactTrophicNetwork, ExactTrophicNetworkPlan, ExactTrophicNetworkStep, FeedingSpec, FoodWeb,
-    FoodWebError, FoodWebParameters, FoodWebStep, ProducerSpec, TrophicNetworkError,
+    FoodWebError, FoodWebParameters, FoodWebStep, ProducerSpec, TrophicLaw, TrophicNetworkError,
     TrophicNetworkSpec, World, WorldError, energy_law, integer_amount,
 };
 use num_bigint::BigInt;
@@ -15,6 +15,8 @@ use numpy::{PyArray3, PyReadonlyArray2, PyReadonlyArray3, PyUntypedArrayMethods}
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyModule};
+
+type PyTrophicLawEvidence = (String, Option<String>, String, bool);
 
 fn invalid(error: WorldError) -> PyErr {
     PyValueError::new_err(error.to_string())
@@ -621,6 +623,28 @@ impl PyTrophicNetworkPlan {
         self.inner.consumer_names().to_vec()
     }
 
+    #[getter]
+    fn evidence_axis_names(&self) -> Vec<String> {
+        self.inner
+            .evidence_axis_names()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[getter]
+    fn evidence_laws(&self) -> Vec<(String, Option<String>, String)> {
+        self.inner
+            .evidence_laws()
+            .map(|law| {
+                (
+                    trophic_law_name(law).to_owned(),
+                    law.axis_name().map(str::to_owned),
+                    trophic_law_grade(law).to_owned(),
+                )
+            })
+            .collect()
+    }
+
     fn start(&self, initial: BTreeMap<String, f64>) -> PyResult<PyTrophicNetwork> {
         Ok(PyTrophicNetwork {
             inner: self
@@ -687,6 +711,29 @@ impl PyTrophicNetwork {
         self.inner.is_balanced()
     }
 
+    #[getter]
+    fn trace_length(&self) -> usize {
+        self.inner.trace().len()
+    }
+
+    fn evidence(&self) -> PyResult<Vec<PyTrophicLawEvidence>> {
+        Ok(self
+            .inner
+            .evidence()
+            .map_err(invalid_trophic_network)?
+            .laws()
+            .iter()
+            .map(|evidence| {
+                (
+                    trophic_law_name(evidence.law()).to_owned(),
+                    evidence.law().axis_name().map(str::to_owned),
+                    evidence.grade().to_string(),
+                    evidence.is_satisfied(),
+                )
+            })
+            .collect())
+    }
+
     #[pyo3(signature = (elapsed, nutrient_input=0.0, harvests=None))]
     fn step(
         &mut self,
@@ -704,6 +751,25 @@ impl PyTrophicNetwork {
                 )
                 .map_err(invalid_trophic_network)?,
         })
+    }
+}
+
+fn trophic_law_name(law: &TrophicLaw) -> &'static str {
+    match law {
+        TrophicLaw::MaterialInvariant => "material_invariant",
+        TrophicLaw::StockNonnegative(_) => "stock_nonnegative",
+        TrophicLaw::CumulativeInputNondecreasing => "cumulative_input_nondecreasing",
+        TrophicLaw::CumulativeOutputNondecreasing => "cumulative_output_nondecreasing",
+    }
+}
+
+fn trophic_law_grade(law: &TrophicLaw) -> &'static str {
+    match law {
+        TrophicLaw::MaterialInvariant => "invariant",
+        TrophicLaw::StockNonnegative(_) => "nonnegative",
+        TrophicLaw::CumulativeInputNondecreasing | TrophicLaw::CumulativeOutputNondecreasing => {
+            "nondecreasing"
+        }
     }
 }
 

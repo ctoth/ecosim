@@ -57,6 +57,34 @@ class TrophicNetworkSpec:
     decomposition: float
 
 
+@dataclass(frozen=True)
+class TrophicLaw:
+    """One named graded sentence compiled for an exact trophic plan."""
+
+    name: str
+    axis_name: str | None
+    grade: str
+
+
+@dataclass(frozen=True)
+class TrophicLawEvidence:
+    """Python summary of one typed exact verdict retained by the Rust core."""
+
+    law: TrophicLaw
+    satisfied: bool
+
+
+@dataclass(frozen=True)
+class TrophicEvidence:
+    """Institutional verdict summaries for one exact run."""
+
+    laws: tuple[TrophicLawEvidence, ...]
+
+    @property
+    def satisfied(self) -> bool:
+        return all(evidence.satisfied for evidence in self.laws)
+
+
 def _producer_tuples(spec: TrophicNetworkSpec) -> list[tuple[str, float, float, float]]:
     return [
         (
@@ -106,6 +134,14 @@ class TrophicNetworkPlan:
     @property
     def consumer_names(self) -> tuple[str, ...]:
         return tuple(self._inner.consumer_names)
+
+    @property
+    def evidence_axis_names(self) -> tuple[str, ...]:
+        return tuple(self._inner.evidence_axis_names)
+
+    @property
+    def evidence_laws(self) -> tuple[TrophicLaw, ...]:
+        return tuple(TrophicLaw(*law) for law in self._inner.evidence_laws)
 
     def start(self, initial: Mapping[str, float]) -> TrophicNetwork:
         return TrophicNetwork.from_compiled(self._inner.start(dict(initial)))
@@ -196,6 +232,18 @@ class TrophicNetwork:
     @property
     def balanced(self) -> bool:
         return self._inner.balanced
+
+    @property
+    def trace_length(self) -> int:
+        return self._inner.trace_length
+
+    def evidence(self) -> TrophicEvidence:
+        return TrophicEvidence(
+            tuple(
+                TrophicLawEvidence(TrophicLaw(name, axis_name, grade), satisfied)
+                for name, axis_name, grade, satisfied in self._inner.evidence()
+            )
+        )
 
     def step(
         self,

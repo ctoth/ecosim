@@ -259,24 +259,24 @@ Similar vocabulary alone is not sufficient.
 
 ### Ecosystem behavior
 
-- [ ] Declare the three-level trophic topology.
-- [ ] Define predator-free and predator-present controls.
-- [ ] Define the nutrient-pulse intervention.
-- [ ] Define the predator-harvest press intervention.
-- [ ] Run exploratory dense parameter ensembles.
-- [ ] Record exploratory results separately from confirmation.
-- [ ] Freeze the confirmatory scenario and thresholds.
-- [ ] Run confirmatory dense comparisons.
-- [ ] Replay selected scenarios through the exact path.
-- [ ] Produce the behavior and institutional-evidence report.
+- [x] Declare the three-level trophic topology.
+- [x] Define predator-free and predator-present controls.
+- [x] Define the nutrient-pulse intervention.
+- [x] Define the predator-harvest press intervention.
+- [x] Run exploratory dense parameter ensembles.
+- [x] Record exploratory results separately from confirmation.
+- [x] Freeze the confirmatory scenario and thresholds.
+- [x] Run confirmatory dense comparisons.
+- [x] Replay selected scenarios through the exact path.
+- [x] Produce the behavior and institutional-evidence report.
 
 ### Handoff and completion
 
-- [ ] Document commands sufficient to reproduce the committed results.
-- [ ] Verify that no PDF or PNG artifact is tracked or introduced into history.
-- [ ] Run formatting, linting, Rust, Python, type, and property-test gates.
-- [ ] Record the ecosystem-to-economics concept mapping.
-- [ ] Decide whether two concrete clients justify a shared extraction.
+- [x] Document commands sufficient to reproduce the committed results.
+- [x] Verify that no PDF or PNG artifact is tracked or introduced into history.
+- [x] Run formatting, linting, Rust, Python, type, and property-test gates.
+- [x] Record the ecosystem-to-economics concept mapping.
+- [x] Decide whether two concrete clients justify a shared extraction.
 
 ## Definition of done
 

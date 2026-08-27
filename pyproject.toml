@@ -36,6 +36,7 @@ exclude = [
 include = [
     { path = ".cargo/config.toml", format = "sdist" },
     { path = "LICENSE", format = "sdist" },
+    { path = "src/ecosim/data/*.json", format = ["sdist", "wheel"] },
 ]
 
 [tool.pyright]

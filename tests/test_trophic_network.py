@@ -98,6 +98,34 @@ def test_compiled_plans_start_independent_runs() -> None:
     assert snapshot(dense_changed) != snapshot(dense_untouched)
 
 
+def test_exact_python_plan_exposes_compiled_evidence_and_run_verdicts() -> None:
+    plan = TrophicNetworkPlan(network_spec())
+    run = plan.start(initial_stocks())
+
+    assert plan.evidence_axis_names == (
+        "nutrient",
+        "grazed",
+        "refuge",
+        "grazer",
+        "detritus",
+        "cumulative_input",
+        "cumulative_output",
+    )
+    assert plan.evidence_laws[0].name == "material_invariant"
+    assert plan.evidence_laws[0].grade == "invariant"
+    assert run.trace_length == 1
+    with pytest.raises(ValueError, match="at least two"):
+        run.evidence()
+
+    run.step(0.25, nutrient_input=2.0, harvests={"grazer": 0.5})
+    evidence = run.evidence()
+
+    assert run.trace_length == 2
+    assert evidence.satisfied
+    assert len(evidence.laws) == 8
+    assert all(law.satisfied for law in evidence.laws)
+
+
 def test_dense_plan_batch_matches_individual_runs_with_forcing() -> None:
     plan = DenseTrophicNetworkPlan(network_spec())
     initial = np.concatenate((ordered_initial(plan), ordered_initial(plan) * 0.5), axis=0)

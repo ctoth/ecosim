@@ -113,14 +113,14 @@ kind-changing matrix coefficient.
 An exact accepted transition record contains:
 
 ```text
-before              x_k in Q_nonnegative^X
-after               x_(k+1) in Q_nonnegative^X
+before              x_k in Q^X
+after               x_(k+1) in Q^X
 requested_internal  q_k in Q_nonnegative^F
 settled_internal    f_k in Q_nonnegative^F
 requested_boundary  r_k in Q_nonnegative^P
 settled_boundary    b_k in Q_nonnegative^P
-ledger_before       ell_k in Q_nonnegative^L
-ledger_after        ell_(k+1) in Q_nonnegative^L
+ledger_before       ell_k in Q^L
+ledger_after        ell_(k+1) in Q^L
 ```
 
 The requested and settled vectors are retained separately. A transition trace
@@ -132,8 +132,11 @@ record[k].ledger_after = record[k + 1].ledger_before
 ```
 
 Malformed vector sizes, missing or extra symbols, kind mismatches, negative
-amounts, and discontinuous records are structural errors. They are not models
-that semantically violate a sentence.
+requested or settled flow magnitudes, and discontinuous records are structural
+errors. Signed stock and ledger observations remain structurally valid so
+`Nonnegative` and `Nondecreasing` sentences can be false. Operational runtimes
+such as ecosim may impose physical nonnegativity before committing a record;
+that stricter runtime contract is not part of model well-formedness.
 
 A trace with no accepted transition cannot receive an ordinary positive
 satisfaction witness. It produces a structural `TooShort`-style result. A

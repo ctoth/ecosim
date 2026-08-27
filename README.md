@@ -58,6 +58,14 @@ The three paths therefore use the same growth, grazing, mortality, and
 decomposition semantics while supporting parameter sweeps and controlled
 perturbation experiments.
 
+`BoundaryPerturbation.pulse` and `.press` construct immutable nutrient-input
+and consumer-harvest interventions. `simulate_food_web_response` runs the
+intervention beside its unforced counterfactual and returns signed stock
+responses with peak, terminal, and recovery observations. This makes trophic
+propagation explicit: enrichment can propagate from nutrient to producers and
+consumers, while sustained consumer harvest can release producers from
+grazing.
+
 ## Paper benchmarks
 
 `ecosim_core::paper_models::almonacid_2020` independently implements the NPZD

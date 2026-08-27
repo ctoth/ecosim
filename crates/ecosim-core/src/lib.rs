@@ -3,12 +3,17 @@
 //! Conserved exact and dense foundations for ecosystem simulation.
 
 mod food_web;
+mod paired;
 pub mod paper_models;
 mod trophic_network;
 
 pub use food_web::{
     DenseFoodWeb, DenseFoodWebParameters, DenseFoodWebStep, FoodWeb, FoodWebError,
     FoodWebParameters, FoodWebStep,
+};
+pub use paired::{
+    ComparisonRelation, ExactPairError, ExactPairedModel, ExactRunRecord, PairedComparisonSentence,
+    PairedComparisonVerdict, PairedComparisonViolation, PairedComparisonWitness, PairedEvidence,
 };
 pub use trophic_network::{
     ConsumerSpec, DenseTrophicNetwork, DenseTrophicNetworkPlan, DenseTrophicNetworkStep,

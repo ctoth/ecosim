@@ -19,7 +19,7 @@ pub use trophic_network::{
 use std::error::Error as StdError;
 use std::fmt;
 
-use conservation_core::{AxisId, BalanceLaw, KindId};
+use conservation_core::{AxisId, BalanceLaw, Grade, GradedLaw, KindId, Provenance};
 use conservation_linear::{NullspaceSource, TransitionMatrix, derive_left_nullspace};
 use conservation_trace::TraceState;
 use institution::Institution;
@@ -261,9 +261,27 @@ impl World {
         let signature = energy_signature()?;
         let model = TraceModel::new(signature.clone(), self.trace.clone())
             .map_err(|error| WorldError::Foundation(error.to_string()))?;
+        let sentence = energy_sentence()?;
         ConservationInstitution
-            .satisfies(&signature, &model, &energy_law()?)
+            .satisfies(&signature, &model, &sentence)
             .map_err(|error| WorldError::Foundation(error.to_string()))
+    }
+
+    /// Checks that both internal stock axes stayed nonnegative over the complete trace.
+    pub fn satisfies_nonnegative_stock_sentences(&self) -> Result<bool, WorldError> {
+        let signature = energy_signature()?;
+        let model = TraceModel::new(signature.clone(), self.trace.clone())
+            .map_err(|error| WorldError::Foundation(error.to_string()))?;
+        for compartment in [Compartment::Left, Compartment::Right] {
+            let sentence = nonnegative_stock_sentence(compartment)?;
+            if !ConservationInstitution
+                .satisfies(&signature, &model, &sentence)
+                .map_err(|error| WorldError::Foundation(error.to_string()))?
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     fn ensure_available(
@@ -340,6 +358,22 @@ pub fn energy_law() -> Result<BalanceLaw, WorldError> {
     laws.pop().ok_or(WorldError::UnexpectedLawCount(0))
 }
 
+/// Reads the derived energy form as an invariant institutional sentence.
+pub fn energy_sentence() -> Result<GradedLaw, WorldError> {
+    Ok(GradedLaw::new(energy_law()?, Grade::Invariant))
+}
+
+/// Declares that one internal stock axis must remain nonnegative along a trace.
+pub fn nonnegative_stock_sentence(compartment: Compartment) -> Result<GradedLaw, WorldError> {
+    let form = BalanceLaw::new(
+        energy_kind()?,
+        [(axis(&compartment.to_string())?, BigRational::one())],
+        Provenance::Declared,
+    )
+    .map_err(|error| WorldError::Foundation(error.to_string()))?;
+    Ok(GradedLaw::new(form, Grade::Nonnegative))
+}
+
 fn energy_signature() -> Result<ConservationSignature, WorldError> {
     let kind = energy_kind()?;
     ConservationSignature::new([
@@ -389,6 +423,56 @@ mod tests {
             law.coefficient(&axis("net_external").unwrap()),
             &integer(-1)
         );
+        let sentence = energy_sentence().expect("the derived law has a valid grade");
+        assert_eq!(sentence.form(), &law);
+        assert_eq!(sentence.grade(), Grade::Invariant);
+    }
+
+    #[test]
+    fn nonnegative_sentence_exposes_a_balanced_but_impossible_stock() {
+        let signature = energy_signature().unwrap();
+        let model = TraceModel::new(
+            signature.clone(),
+            vec![
+                TraceState::new([
+                    (axis("left").unwrap(), integer(1)),
+                    (axis("right").unwrap(), integer(1)),
+                    (axis("net_external").unwrap(), integer(0)),
+                ])
+                .unwrap(),
+                TraceState::new([
+                    (axis("left").unwrap(), integer(-1)),
+                    (axis("right").unwrap(), integer(3)),
+                    (axis("net_external").unwrap(), integer(0)),
+                ])
+                .unwrap(),
+            ],
+        )
+        .unwrap();
+
+        assert!(
+            ConservationInstitution
+                .satisfies(&signature, &model, &energy_sentence().unwrap())
+                .unwrap()
+        );
+        assert!(
+            !ConservationInstitution
+                .satisfies(
+                    &signature,
+                    &model,
+                    &nonnegative_stock_sentence(Compartment::Left).unwrap(),
+                )
+                .unwrap()
+        );
+        assert!(
+            ConservationInstitution
+                .satisfies(
+                    &signature,
+                    &model,
+                    &nonnegative_stock_sentence(Compartment::Right).unwrap(),
+                )
+                .unwrap()
+        );
     }
 
     #[test]
@@ -407,6 +491,7 @@ mod tests {
         assert_eq!(report.final_stock(), &integer(19));
         assert!(report.is_balanced());
         assert!(world.satisfies_energy_law().unwrap());
+        assert!(world.satisfies_nonnegative_stock_sentences().unwrap());
     }
 
     #[test]
@@ -522,6 +607,7 @@ mod tests {
             }
             prop_assert!(world.report().is_balanced());
             prop_assert!(world.satisfies_energy_law().unwrap());
+            prop_assert!(world.satisfies_nonnegative_stock_sentences().unwrap());
         }
     }
 }

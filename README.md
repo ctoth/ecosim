@@ -116,7 +116,10 @@ abstract or fabricated from adjacent literature.
 
 The exact ledger, stock-flow kernel, and property tests verify the stated accounting formalism:
 classified internal transfers cancel globally, boundary flows change the total,
-and rejected events are atomic. They do not establish that an ecosystem is at
+and rejected events are atomic. Graded institutional sentences separately
+state that the derived total-energy form is invariant and that each internal
+stock remains nonnegative; a balanced total therefore cannot conceal a
+negative compartment. They do not establish that an ecosystem is at
 equilibrium, that the selected compartments and mechanisms are empirically
 adequate, or that the model is validated for a real-world use. Such a claim
 requires a separately stated purpose, performance criteria, operating context,

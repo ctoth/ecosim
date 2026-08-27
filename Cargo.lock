@@ -48,7 +48,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 [[package]]
 name = "conservation-core"
 version = "0.1.0"
-source = "git+https://github.com/ctoth/conservation.git?rev=9b336f742c282973965eb893c9c40399540be44b#9b336f742c282973965eb893c9c40399540be44b"
+source = "git+https://github.com/ctoth/conservation.git?rev=dd21f6b1fee852b62328dac8aaf7138e45551272#dd21f6b1fee852b62328dac8aaf7138e45551272"
 dependencies = [
  "num-rational",
  "num-traits",
@@ -57,7 +57,7 @@ dependencies = [
 [[package]]
 name = "conservation-dynamics"
 version = "0.1.0"
-source = "git+https://github.com/ctoth/conservation.git?rev=9b336f742c282973965eb893c9c40399540be44b#9b336f742c282973965eb893c9c40399540be44b"
+source = "git+https://github.com/ctoth/conservation.git?rev=dd21f6b1fee852b62328dac8aaf7138e45551272#dd21f6b1fee852b62328dac8aaf7138e45551272"
 dependencies = [
  "conservation-core",
  "num-rational",
@@ -67,7 +67,7 @@ dependencies = [
 [[package]]
 name = "conservation-linear"
 version = "0.1.0"
-source = "git+https://github.com/ctoth/conservation.git?rev=9b336f742c282973965eb893c9c40399540be44b#9b336f742c282973965eb893c9c40399540be44b"
+source = "git+https://github.com/ctoth/conservation.git?rev=dd21f6b1fee852b62328dac8aaf7138e45551272#dd21f6b1fee852b62328dac8aaf7138e45551272"
 dependencies = [
  "conservation-core",
  "num-bigint",
@@ -79,7 +79,7 @@ dependencies = [
 [[package]]
 name = "conservation-trace"
 version = "0.1.0"
-source = "git+https://github.com/ctoth/conservation.git?rev=9b336f742c282973965eb893c9c40399540be44b#9b336f742c282973965eb893c9c40399540be44b"
+source = "git+https://github.com/ctoth/conservation.git?rev=dd21f6b1fee852b62328dac8aaf7138e45551272#dd21f6b1fee852b62328dac8aaf7138e45551272"
 dependencies = [
  "conservation-core",
  "num-rational",
@@ -184,12 +184,12 @@ dependencies = [
 [[package]]
 name = "institution"
 version = "0.1.0"
-source = "git+https://github.com/ctoth/institution.git?rev=328608dd3c5816b3368fd83680cfc241795aadaa#328608dd3c5816b3368fd83680cfc241795aadaa"
+source = "git+https://github.com/ctoth/institution.git?rev=16109396f9cc68c705a941b9b039758486597389#16109396f9cc68c705a941b9b039758486597389"
 
 [[package]]
 name = "institution-conservation"
 version = "0.1.0"
-source = "git+https://github.com/ctoth/institution.git?rev=328608dd3c5816b3368fd83680cfc241795aadaa#328608dd3c5816b3368fd83680cfc241795aadaa"
+source = "git+https://github.com/ctoth/institution.git?rev=16109396f9cc68c705a941b9b039758486597389#16109396f9cc68c705a941b9b039758486597389"
 dependencies = [
  "conservation-core",
  "conservation-trace",

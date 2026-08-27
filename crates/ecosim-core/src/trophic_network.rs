@@ -10,6 +10,14 @@ use conservation_dynamics::{
     DenseState, DenseTolerance, ExactState, FlowSpec, FlowTopology, ProcessId, StockDefinition,
     StockFlowError, StockId,
 };
+use conservation_stock_flow::{
+    BoundaryCorrespondence, BoundaryId, BoundaryVerdict, ChannelId, ExactAmounts,
+    FlowConstraintVerdict, FlowId, LedgerDefinition, LedgerId, LinearFlowConstraint, OpenBalance,
+    OpenBalanceVerdict, SentenceId, StockAxisDefinition, StockFlowCarrier, SymbolId,
+    TransitionEquation, TransitionRecord, TransitionTrace, TransitionVerdict, certify_nullspace,
+    check_boundary_correspondence, check_linear_flow_constraint, check_open_balance,
+    check_transition_equation,
+};
 use conservation_trace::{LawVerdict, TraceState, check_law};
 use institution::Institution;
 use institution_conservation::{ConservationInstitution, ConservationSignature, TraceModel};
@@ -282,6 +290,8 @@ struct ConsumerRate<N> {
 
 #[derive(Clone, Debug)]
 struct FeedingRate<N> {
+    consumer: String,
+    resource: String,
     resource_stock: usize,
     consumer_stock: usize,
     assimilation_flow: usize,
@@ -304,6 +314,8 @@ struct NetworkLayout {
     nutrient_input_flow: usize,
     decomposition_flow: usize,
     flow_count: usize,
+    flow_symbols: Vec<TrophicFlow>,
+    boundary_symbols: Vec<TrophicBoundary>,
 }
 
 #[derive(Clone, Debug)]
@@ -317,9 +329,208 @@ struct CompiledNetwork<N> {
     detritus_stock: usize,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ExactTrophicPlanIdentity {
+    stock_names: Vec<String>,
+    flow_symbols: Vec<TrophicFlow>,
+    boundary_symbols: Vec<TrophicBoundary>,
+    producers: Vec<(String, BigRational, BigRational, BigRational)>,
+    consumers: Vec<(String, BigRational)>,
+    feedings: Vec<(String, String, BigRational, BigRational, BigRational)>,
+    decomposition: BigRational,
+}
+
+/// Stable semantic identity of one compiled trophic flow.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum TrophicFlow {
+    /// External material entering the nutrient stock.
+    NutrientInput,
+    /// Nutrient material incorporated by one producer.
+    ProducerGrowth(String),
+    /// Consumed material incorporated by one consumer.
+    FeedingAssimilation { consumer: String, resource: String },
+    /// Consumed material transferred to detritus.
+    FeedingWaste { consumer: String, resource: String },
+    /// Background mortality transferred to detritus.
+    Mortality(String),
+    /// Detrital material returned to the nutrient stock.
+    Decomposition,
+    /// Material removed from one consumer.
+    Harvest(String),
+}
+
+/// Stable semantic identity of one compiled trophic boundary port.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum TrophicBoundary {
+    /// External nutrient input.
+    NutrientInput,
+    /// External harvest output for one consumer.
+    Harvest(String),
+}
+
+/// One accepted exact transition with both proposed and kernel-settled flows.
+#[derive(Clone, Debug)]
+pub struct ExactTrophicTransition {
+    layout: Arc<NetworkLayout>,
+    index: usize,
+    time_before: BigRational,
+    time_after: BigRational,
+    elapsed: BigRational,
+    stocks_before: Vec<BigRational>,
+    stocks_after: Vec<BigRational>,
+    inputs_before: BigRational,
+    inputs_after: BigRational,
+    outputs_before: BigRational,
+    outputs_after: BigRational,
+    proposed: Vec<BigRational>,
+    settled: Vec<BigRational>,
+    record: TransitionRecord,
+}
+
+impl PartialEq for ExactTrophicTransition {
+    fn eq(&self, other: &Self) -> bool {
+        self.layout.stock_names == other.layout.stock_names
+            && self.layout.flow_symbols == other.layout.flow_symbols
+            && self.index == other.index
+            && self.time_before == other.time_before
+            && self.time_after == other.time_after
+            && self.elapsed == other.elapsed
+            && self.stocks_before == other.stocks_before
+            && self.stocks_after == other.stocks_after
+            && self.inputs_before == other.inputs_before
+            && self.inputs_after == other.inputs_after
+            && self.outputs_before == other.outputs_before
+            && self.outputs_after == other.outputs_after
+            && self.proposed == other.proposed
+            && self.settled == other.settled
+            && self.record == other.record
+    }
+}
+
+impl Eq for ExactTrophicTransition {}
+
+impl ExactTrophicTransition {
+    /// Zero-based position in the accepted transition trace.
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    /// Exact model time before this transition.
+    pub fn time_before(&self) -> &BigRational {
+        &self.time_before
+    }
+
+    /// Exact model time after this transition.
+    pub fn time_after(&self) -> &BigRational {
+        &self.time_after
+    }
+
+    /// Declared exact step duration.
+    pub fn elapsed(&self) -> &BigRational {
+        &self.elapsed
+    }
+
+    /// Stable stock order used by both state vectors.
+    pub fn stock_names(&self) -> &[String] {
+        &self.layout.stock_names
+    }
+
+    /// Exact stock vector before settlement.
+    pub fn stocks_before(&self) -> &[BigRational] {
+        &self.stocks_before
+    }
+
+    /// Exact stock vector after settlement.
+    pub fn stocks_after(&self) -> &[BigRational] {
+        &self.stocks_after
+    }
+
+    /// Exact pre-transition stock amount by semantic name.
+    pub fn stock_before(&self, name: &str) -> Option<&BigRational> {
+        self.layout
+            .stock_indices
+            .get(name)
+            .and_then(|index| self.stocks_before.get(*index))
+    }
+
+    /// Exact post-transition stock amount by semantic name.
+    pub fn stock_after(&self, name: &str) -> Option<&BigRational> {
+        self.layout
+            .stock_indices
+            .get(name)
+            .and_then(|index| self.stocks_after.get(*index))
+    }
+
+    /// Cumulative material input before settlement.
+    pub fn inputs_before(&self) -> &BigRational {
+        &self.inputs_before
+    }
+
+    /// Cumulative material input after settlement.
+    pub fn inputs_after(&self) -> &BigRational {
+        &self.inputs_after
+    }
+
+    /// Cumulative material output before settlement.
+    pub fn outputs_before(&self) -> &BigRational {
+        &self.outputs_before
+    }
+
+    /// Cumulative material output after settlement.
+    pub fn outputs_after(&self) -> &BigRational {
+        &self.outputs_after
+    }
+
+    /// Stable semantic flow order used by both amount vectors.
+    pub fn flow_symbols(&self) -> &[TrophicFlow] {
+        &self.layout.flow_symbols
+    }
+
+    /// Requested exact flow amounts in [`Self::flow_symbols`] order.
+    pub fn proposed_amounts(&self) -> &[BigRational] {
+        &self.proposed
+    }
+
+    /// Kernel-settled exact flow amounts in [`Self::flow_symbols`] order.
+    pub fn settled_amounts(&self) -> &[BigRational] {
+        &self.settled
+    }
+
+    /// Requested amount for one semantic flow.
+    pub fn proposed(&self, flow: &TrophicFlow) -> Option<&BigRational> {
+        self.layout
+            .flow_symbols
+            .iter()
+            .position(|candidate| candidate == flow)
+            .and_then(|index| self.proposed.get(index))
+    }
+
+    /// Kernel-settled amount for one semantic flow.
+    pub fn settled(&self, flow: &TrophicFlow) -> Option<&BigRational> {
+        self.layout
+            .flow_symbols
+            .iter()
+            .position(|candidate| candidate == flow)
+            .and_then(|index| self.settled.get(index))
+    }
+
+    /// Domain-neutral typed stock-flow record built from the kernel settlement report.
+    pub fn record(&self) -> &TransitionRecord {
+        &self.record
+    }
+}
+
 /// The semantic role of one compiled trophic-network sentence.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum TrophicLaw {
+    /// Every stock delta equals the effects of settled internal and boundary flows.
+    TransitionEquation,
+    /// Assimilated and waste flows retain one feeding relationship's declared ratio.
+    FeedingPartition { consumer: String, resource: String },
+    /// The cumulative input ledger increment equals settled nutrient input.
+    NutrientInputCorrespondence,
+    /// One consumer's cumulative harvest ledger equals its settled output port.
+    HarvestCorrespondence(String),
     /// Total physical material adjusted by cumulative boundary flows is invariant.
     MaterialInvariant,
     /// One named physical stock remains nonnegative.
@@ -328,17 +539,129 @@ pub enum TrophicLaw {
     CumulativeInputNondecreasing,
     /// The cumulative output ledger never decreases.
     CumulativeOutputNondecreasing,
+    /// Checked total material balance against all boundary ports.
+    OpenMaterialBalance,
 }
 
 impl TrophicLaw {
     /// The single associated axis, when this sentence concerns one axis.
     pub fn axis_name(&self) -> Option<&str> {
         match self {
-            Self::MaterialInvariant => None,
+            Self::TransitionEquation
+            | Self::FeedingPartition { .. }
+            | Self::NutrientInputCorrespondence
+            | Self::HarvestCorrespondence(_)
+            | Self::MaterialInvariant
+            | Self::OpenMaterialBalance => None,
             Self::StockNonnegative(name) => Some(name),
             Self::CumulativeInputNondecreasing => Some(CUMULATIVE_INPUT),
             Self::CumulativeOutputNondecreasing => Some(CUMULATIVE_OUTPUT),
         }
+    }
+}
+
+/// Semantic checker family for one complete trophic-law verdict.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrophicSentenceFamily {
+    /// Exact state-transition equation.
+    Transition,
+    /// Exact linear relation among internal settled flows.
+    FlowConstraint,
+    /// Exact cumulative-ledger/boundary correspondence.
+    Boundary,
+    /// Existing graded state-trace sentence.
+    Graded,
+    /// Certificate-derived direct open balance.
+    OpenBalance,
+}
+
+/// Typed verdict from one member of the complete trophic-law suite.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TrophicLawVerdict {
+    /// State-transition equation result.
+    Transition(TransitionVerdict),
+    /// Feeding-partition result.
+    FlowConstraint(FlowConstraintVerdict),
+    /// Boundary-ledger result.
+    Boundary(BoundaryVerdict),
+    /// Existing graded law result.
+    Graded(LawVerdict),
+    /// Derived open-balance result.
+    OpenBalance(OpenBalanceVerdict),
+}
+
+impl TrophicLawVerdict {
+    /// Whether the typed verdict carries positive evidence.
+    pub fn is_satisfied(&self) -> bool {
+        match self {
+            Self::Transition(verdict) => verdict.is_satisfied(),
+            Self::FlowConstraint(verdict) => verdict.is_satisfied(),
+            Self::Boundary(verdict) => verdict.is_satisfied(),
+            Self::Graded(verdict) => matches!(verdict, LawVerdict::Satisfied(_)),
+            Self::OpenBalance(verdict) => verdict.is_satisfied(),
+        }
+    }
+}
+
+/// One named member of the complete process, boundary, and graded law suite.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompleteTrophicLawEvidence {
+    law: TrophicLaw,
+    family: TrophicSentenceFamily,
+    symbols: Vec<SymbolId>,
+    grade: Option<Grade>,
+    verdict: TrophicLawVerdict,
+}
+
+impl CompleteTrophicLawEvidence {
+    /// Domain semantic role of the sentence.
+    pub fn law(&self) -> &TrophicLaw {
+        &self.law
+    }
+
+    /// Checker family that produced the verdict.
+    pub fn family(&self) -> TrophicSentenceFamily {
+        self.family
+    }
+
+    /// Relevant exact carrier symbols in canonical order.
+    pub fn symbols(&self) -> &[SymbolId] {
+        &self.symbols
+    }
+
+    /// Grade for an embedded graded sentence, otherwise `None`.
+    pub fn grade(&self) -> Option<Grade> {
+        self.grade
+    }
+
+    /// Typed positive witness or first violation.
+    pub fn verdict(&self) -> &TrophicLawVerdict {
+        &self.verdict
+    }
+
+    /// Whether this member of the suite was satisfied.
+    pub fn is_satisfied(&self) -> bool {
+        self.verdict.is_satisfied()
+    }
+}
+
+/// Complete exact trophic process, boundary, graded, and open-balance evidence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExactTrophicLawSuiteEvidence {
+    laws: Vec<CompleteTrophicLawEvidence>,
+}
+
+impl ExactTrophicLawSuiteEvidence {
+    /// Verdicts in stable family and semantic-symbol order.
+    pub fn laws(&self) -> &[CompleteTrophicLawEvidence] {
+        &self.laws
+    }
+
+    /// Whether every member of the complete suite was satisfied.
+    pub fn is_satisfied(&self) -> bool {
+        self.laws
+            .iter()
+            .all(CompleteTrophicLawEvidence::is_satisfied)
     }
 }
 
@@ -397,12 +720,44 @@ struct NamedSentence {
 }
 
 #[derive(Clone, Debug)]
+enum NamedStockFlowSentence {
+    Transition {
+        law: TrophicLaw,
+        sentence: TransitionEquation,
+        symbols: Vec<SymbolId>,
+    },
+    FlowConstraint {
+        law: TrophicLaw,
+        sentence: LinearFlowConstraint,
+        symbols: Vec<SymbolId>,
+    },
+    Boundary {
+        law: TrophicLaw,
+        sentence: BoundaryCorrespondence,
+        symbols: Vec<SymbolId>,
+    },
+}
+
+impl NamedStockFlowSentence {
+    fn law(&self) -> &TrophicLaw {
+        match self {
+            Self::Transition { law, .. }
+            | Self::FlowConstraint { law, .. }
+            | Self::Boundary { law, .. } => law,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 struct ExactEvidencePlan {
     signature: ConservationSignature,
+    carrier: Arc<StockFlowCarrier>,
     stock_axes: Vec<AxisId>,
     cumulative_input_axis: AxisId,
     cumulative_output_axis: AxisId,
     sentences: Vec<NamedSentence>,
+    stock_flow_sentences: Vec<NamedStockFlowSentence>,
+    open_balance: OpenBalance,
 }
 
 /// Stateful exact-arithmetic execution of a compiled trophic network.
@@ -413,6 +768,8 @@ pub struct ExactTrophicNetwork {
     state: ExactState,
     time: BigRational,
     trace: Vec<TraceState>,
+    transitions: Vec<ExactTrophicTransition>,
+    harvest_ledgers: BTreeMap<String, BigRational>,
 }
 
 impl ExactTrophicNetwork {
@@ -473,12 +830,69 @@ impl ExactTrophicNetwork {
         &self.trace
     }
 
+    /// Accepted exact transitions, excluding the initial state snapshot.
+    pub fn transitions(&self) -> &[ExactTrophicTransition] {
+        &self.transitions
+    }
+
     /// Evaluates every compiled graded sentence for this run.
     ///
     /// At least one successful step is required because institutional trace
     /// satisfaction compares a minimum of two states.
     pub fn evidence(&self) -> Result<ExactTrophicNetworkEvidence, TrophicNetworkError> {
         evaluate_evidence(&self.evidence_plan, &self.trace)
+    }
+
+    /// Evaluates the complete exact transition, process, boundary, graded, and open-balance suite.
+    pub fn law_evidence(&self) -> Result<ExactTrophicLawSuiteEvidence, TrophicNetworkError> {
+        evaluate_law_suite(&self.evidence_plan, &self.trace, &self.transitions)
+    }
+
+    pub(crate) fn plan_identity(&self) -> ExactTrophicPlanIdentity {
+        ExactTrophicPlanIdentity {
+            stock_names: self.compiled.layout.stock_names.clone(),
+            flow_symbols: self.compiled.layout.flow_symbols.clone(),
+            boundary_symbols: self.compiled.layout.boundary_symbols.clone(),
+            producers: self
+                .compiled
+                .producers
+                .iter()
+                .map(|producer| {
+                    (
+                        self.compiled.layout.stock_names[producer.stock].clone(),
+                        producer.max_growth.clone(),
+                        producer.half_saturation.clone(),
+                        producer.mortality.clone(),
+                    )
+                })
+                .collect(),
+            consumers: self
+                .compiled
+                .consumers
+                .iter()
+                .map(|consumer| {
+                    (
+                        self.compiled.layout.stock_names[consumer.stock].clone(),
+                        consumer.mortality.clone(),
+                    )
+                })
+                .collect(),
+            feedings: self
+                .compiled
+                .feedings
+                .iter()
+                .map(|feeding| {
+                    (
+                        feeding.consumer.clone(),
+                        feeding.resource.clone(),
+                        feeding.max_rate.clone(),
+                        feeding.half_saturation.clone(),
+                        feeding.efficiency.clone(),
+                    )
+                })
+                .collect(),
+            decomposition: self.compiled.decomposition.clone(),
+        }
     }
 
     /// Settles all growth, feeding, mortality, decomposition, input, and harvest proposals.
@@ -498,18 +912,63 @@ impl ExactTrophicNetwork {
             nutrient_input,
             &harvests,
         );
+        let time_before = self.time.clone();
+        let stocks_before = self.state.amounts().to_vec();
+        let inputs_before = self.inputs();
+        let outputs_before = self.outputs();
+        let harvest_ledgers_before = self.harvest_ledgers.clone();
         let mut next_state = self.state.clone();
         let settlement = next_state.settle(&requested)?;
+        let mut harvest_ledgers_after = harvest_ledgers_before.clone();
+        for (consumer, flow) in &self.compiled.layout.harvest_flows {
+            *harvest_ledgers_after
+                .get_mut(consumer)
+                .expect("compiled consumer has a harvest ledger") +=
+                settlement.applied()[*flow].clone();
+        }
         let next_time = &self.time + &elapsed;
         let next_trace_state = exact_trace_state(&self.evidence_plan, &next_state)?;
+        let record = self
+            .evidence_plan
+            .carrier
+            .record_from_settlement(
+                &stocks_before,
+                next_state.amounts(),
+                &settlement,
+                exact_ledger_amounts(
+                    &self.evidence_plan.carrier,
+                    &inputs_before,
+                    &harvest_ledgers_before,
+                )?,
+                exact_ledger_amounts(
+                    &self.evidence_plan.carrier,
+                    &next_state.inputs(&material_kind()),
+                    &harvest_ledgers_after,
+                )?,
+            )
+            .map_err(evidence_error)?;
+        let transition = ExactTrophicTransition {
+            layout: Arc::clone(&self.compiled.layout),
+            index: self.transitions.len(),
+            time_before,
+            time_after: next_time.clone(),
+            elapsed,
+            stocks_before,
+            stocks_after: next_state.amounts().to_vec(),
+            inputs_before,
+            inputs_after: next_state.inputs(&material_kind()),
+            outputs_before,
+            outputs_after: next_state.outputs(&material_kind()),
+            proposed: settlement.requested().to_vec(),
+            settled: settlement.applied().to_vec(),
+            record,
+        };
         self.state = next_state;
         self.time = next_time;
+        self.harvest_ledgers = harvest_ledgers_after;
         self.trace.push(next_trace_state);
-        Ok(ExactTrophicNetworkStep {
-            layout: Arc::clone(&self.compiled.layout),
-            applied: settlement.applied().to_vec(),
-            elapsed,
-        })
+        self.transitions.push(transition.clone());
+        Ok(ExactTrophicNetworkStep { transition })
     }
 }
 
@@ -525,7 +984,7 @@ impl ExactTrophicNetworkPlan {
     pub fn compile(spec: TrophicNetworkSpec<BigRational>) -> Result<Self, TrophicNetworkError> {
         validate_exact_spec(&spec)?;
         let compiled = Arc::new(compile_network(spec)?);
-        let evidence = Arc::new(compile_evidence_plan(&compiled.layout.stock_names)?);
+        let evidence = Arc::new(compile_evidence_plan(&compiled)?);
         Ok(Self { compiled, evidence })
     }
 
@@ -537,6 +996,21 @@ impl ExactTrophicNetworkPlan {
     /// Stable consumer order used by ordered harvest vectors.
     pub fn consumer_names(&self) -> &[String] {
         &self.compiled.layout.consumer_names
+    }
+
+    /// Stable compiled flow order shared by every exact run from this plan.
+    pub fn flow_symbols(&self) -> &[TrophicFlow] {
+        &self.compiled.layout.flow_symbols
+    }
+
+    /// Stable compiled boundary-port order shared by every exact run from this plan.
+    pub fn boundary_symbols(&self) -> &[TrophicBoundary] {
+        &self.compiled.layout.boundary_symbols
+    }
+
+    /// Domain-neutral exact carrier used by persisted transitions and typed law checkers.
+    pub fn stock_flow_carrier(&self) -> &StockFlowCarrier {
+        &self.evidence.carrier
     }
 
     /// Stable evidence-axis order: physical stocks, cumulative input, cumulative output.
@@ -556,6 +1030,27 @@ impl ExactTrophicNetworkPlan {
         self.evidence.sentences.iter().map(|named| &named.law)
     }
 
+    /// Complete compiled law order, canonical across declaration-order permutations.
+    pub fn law_suite_laws(&self) -> Vec<TrophicLaw> {
+        let mut laws = self
+            .evidence
+            .stock_flow_sentences
+            .iter()
+            .map(NamedStockFlowSentence::law)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut graded = self
+            .evidence
+            .sentences
+            .iter()
+            .map(|named| named.law.clone())
+            .collect::<Vec<_>>();
+        graded.sort();
+        laws.extend(graded);
+        laws.push(TrophicLaw::OpenMaterialBalance);
+        laws
+    }
+
     /// Starts an independent exact run without recompiling the topology.
     pub fn start(
         &self,
@@ -570,6 +1065,15 @@ impl ExactTrophicNetworkPlan {
             evidence_plan: Arc::clone(&self.evidence),
             time: BigRational::zero(),
             trace: vec![initial_trace_state],
+            transitions: Vec::new(),
+            harvest_ledgers: self
+                .compiled
+                .layout
+                .consumer_names
+                .iter()
+                .cloned()
+                .map(|consumer| (consumer, BigRational::zero()))
+                .collect(),
         })
     }
 }
@@ -577,52 +1081,84 @@ impl ExactTrophicNetworkPlan {
 /// Exact process observations from one trophic-network step.
 #[derive(Clone, Debug)]
 pub struct ExactTrophicNetworkStep {
-    layout: Arc<NetworkLayout>,
-    applied: Vec<BigRational>,
-    elapsed: BigRational,
+    transition: ExactTrophicTransition,
 }
 
 impl ExactTrophicNetworkStep {
     /// Exact step duration.
     pub fn elapsed(&self) -> &BigRational {
-        &self.elapsed
+        self.transition.elapsed()
+    }
+
+    /// The persisted transition represented by this step result.
+    pub fn transition(&self) -> &ExactTrophicTransition {
+        &self.transition
     }
 
     /// Settled producer growth.
     pub fn growth(&self, producer: &str) -> Option<&BigRational> {
-        self.layout
+        self.transition
+            .layout
             .growth_flows
             .get(producer)
-            .and_then(|index| self.applied.get(*index))
+            .and_then(|index| self.transition.settled.get(*index))
     }
 
     /// Settled total resource consumption, before assimilation/waste partitioning.
     pub fn feeding(&self, consumer: &str, resource: &str) -> Option<BigRational> {
-        self.layout
+        self.transition
+            .layout
             .feeding_flows
             .get(&(consumer.to_owned(), resource.to_owned()))
-            .map(|(assimilation, waste)| &self.applied[*assimilation] + &self.applied[*waste])
+            .map(|(assimilation, waste)| {
+                &self.transition.settled[*assimilation] + &self.transition.settled[*waste]
+            })
+    }
+
+    /// Settled assimilated feeding material.
+    pub fn feeding_assimilation(&self, consumer: &str, resource: &str) -> Option<&BigRational> {
+        self.transition
+            .layout
+            .feeding_flows
+            .get(&(consumer.to_owned(), resource.to_owned()))
+            .and_then(|(assimilation, _)| self.transition.settled.get(*assimilation))
+    }
+
+    /// Settled unassimilated feeding waste.
+    pub fn feeding_waste(&self, consumer: &str, resource: &str) -> Option<&BigRational> {
+        self.transition
+            .layout
+            .feeding_flows
+            .get(&(consumer.to_owned(), resource.to_owned()))
+            .and_then(|(_, waste)| self.transition.settled.get(*waste))
     }
 
     /// Settled background mortality.
     pub fn mortality(&self, stock: &str) -> Option<&BigRational> {
-        self.layout
+        self.transition
+            .layout
             .mortality_flows
             .get(stock)
-            .and_then(|index| self.applied.get(*index))
+            .and_then(|index| self.transition.settled.get(*index))
     }
 
     /// Settled consumer harvest.
     pub fn harvest(&self, consumer: &str) -> Option<&BigRational> {
-        self.layout
+        self.transition
+            .layout
             .harvest_flows
             .get(consumer)
-            .and_then(|index| self.applied.get(*index))
+            .and_then(|index| self.transition.settled.get(*index))
     }
 
     /// Settled detritus decomposition.
     pub fn decomposition(&self) -> &BigRational {
-        &self.applied[self.layout.decomposition_flow]
+        &self.transition.settled[self.transition.layout.decomposition_flow]
+    }
+
+    /// Settled nutrient input.
+    pub fn nutrient_input(&self) -> &BigRational {
+        &self.transition.settled[self.transition.layout.nutrient_input_flow]
     }
 }
 
@@ -889,14 +1425,173 @@ impl DenseTrophicNetworkStep {
     }
 }
 
-fn compile_evidence_plan(stock_names: &[String]) -> Result<ExactEvidencePlan, TrophicNetworkError> {
+fn compile_evidence_plan(
+    compiled: &CompiledNetwork<BigRational>,
+) -> Result<ExactEvidencePlan, TrophicNetworkError> {
+    let layout = &compiled.layout;
     let kind = material_kind();
-    let stock_axes = stock_names
+    let stock_axes = layout
+        .stock_names
         .iter()
         .map(|name| AxisId::new(name.clone()).map_err(evidence_error))
         .collect::<Result<Vec<_>, _>>()?;
     let cumulative_input_axis = AxisId::new(CUMULATIVE_INPUT).map_err(evidence_error)?;
     let cumulative_output_axis = AxisId::new(CUMULATIVE_OUTPUT).map_err(evidence_error)?;
+    let stock_axis_definitions = layout
+        .stock_names
+        .iter()
+        .zip(&stock_axes)
+        .map(|(name, axis)| StockAxisDefinition {
+            stock: StockId::new(name).expect("compiled stock names are valid"),
+            axis: axis.clone(),
+        })
+        .collect::<Vec<_>>();
+    let channels = layout
+        .flow_symbols
+        .iter()
+        .map(stock_flow_channel)
+        .collect::<Result<Vec<_>, _>>()?;
+    let input_boundary = BoundaryId::new("nutrient-input").map_err(evidence_error)?;
+    let harvest_boundaries = layout
+        .boundary_symbols
+        .iter()
+        .filter_map(|boundary| match boundary {
+            TrophicBoundary::NutrientInput => None,
+            TrophicBoundary::Harvest(consumer) => {
+                Some((consumer, BoundaryId::new(format!("harvest:{consumer}"))))
+            }
+        })
+        .map(|(consumer, boundary)| Ok((consumer.clone(), boundary.map_err(evidence_error)?)))
+        .collect::<Result<Vec<_>, TrophicNetworkError>>()?;
+    let mut ledgers = vec![LedgerDefinition {
+        id: input_ledger_id()?,
+        axis: cumulative_input_axis.clone(),
+        kind: kind.clone(),
+        boundaries: vec![input_boundary],
+    }];
+    for (consumer, boundary) in harvest_boundaries {
+        ledgers.push(LedgerDefinition {
+            id: harvest_ledger_id(&consumer)?,
+            axis: AxisId::new(format!("cumulative_harvest:{consumer}")).map_err(evidence_error)?,
+            kind: kind.clone(),
+            boundaries: vec![boundary],
+        });
+    }
+    let carrier = Arc::new(
+        StockFlowCarrier::new(
+            Arc::clone(&layout.topology),
+            stock_axis_definitions,
+            channels,
+            ledgers,
+        )
+        .map_err(evidence_error)?,
+    );
+    let mut transition_symbols = carrier
+        .internal_effects()
+        .axes()
+        .cloned()
+        .map(SymbolId::Axis)
+        .collect::<Vec<_>>();
+    transition_symbols.extend(
+        carrier
+            .internal_effects()
+            .columns()
+            .cloned()
+            .map(SymbolId::Flow),
+    );
+    transition_symbols.extend(
+        carrier
+            .boundary_effects()
+            .columns()
+            .cloned()
+            .map(SymbolId::Boundary),
+    );
+    let mut stock_flow_sentences = vec![NamedStockFlowSentence::Transition {
+        law: TrophicLaw::TransitionEquation,
+        sentence: TransitionEquation::new(
+            SentenceId::new("trophic.transition-equation").map_err(evidence_error)?,
+        ),
+        symbols: transition_symbols,
+    }];
+    let mut feedings = compiled.feedings.iter().collect::<Vec<_>>();
+    feedings.sort_by(|left, right| {
+        (&left.consumer, &left.resource).cmp(&(&right.consumer, &right.resource))
+    });
+    for feeding in feedings {
+        let assimilation = FlowId::new(format!(
+            "feeding-assimilated:{}:{}",
+            feeding.consumer, feeding.resource
+        ))
+        .map_err(evidence_error)?;
+        let waste = FlowId::new(format!(
+            "feeding-waste:{}:{}",
+            feeding.consumer, feeding.resource
+        ))
+        .map_err(evidence_error)?;
+        let sentence = LinearFlowConstraint::new(
+            &carrier,
+            SentenceId::new(format!(
+                "trophic.feeding-partition:{}:{}",
+                feeding.consumer, feeding.resource
+            ))
+            .map_err(evidence_error)?,
+            kind.clone(),
+            [
+                (
+                    assimilation.clone(),
+                    BigRational::one() - &feeding.efficiency,
+                ),
+                (waste.clone(), -feeding.efficiency.clone()),
+            ],
+            BigRational::zero(),
+        )
+        .map_err(evidence_error)?;
+        sentence.validate(&carrier).map_err(evidence_error)?;
+        stock_flow_sentences.push(NamedStockFlowSentence::FlowConstraint {
+            law: TrophicLaw::FeedingPartition {
+                consumer: feeding.consumer.clone(),
+                resource: feeding.resource.clone(),
+            },
+            sentence,
+            symbols: vec![SymbolId::Flow(assimilation), SymbolId::Flow(waste)],
+        });
+    }
+    let input_ledger = input_ledger_id()?;
+    stock_flow_sentences.push(NamedStockFlowSentence::Boundary {
+        law: TrophicLaw::NutrientInputCorrespondence,
+        sentence: BoundaryCorrespondence::new(
+            SentenceId::new("trophic.nutrient-input-correspondence").map_err(evidence_error)?,
+            input_ledger.clone(),
+        ),
+        symbols: vec![
+            SymbolId::Ledger(input_ledger),
+            SymbolId::Boundary(BoundaryId::new("nutrient-input").map_err(evidence_error)?),
+        ],
+    });
+    for consumer in layout.harvest_flows.keys() {
+        let ledger = harvest_ledger_id(consumer)?;
+        let boundary = BoundaryId::new(format!("harvest:{consumer}")).map_err(evidence_error)?;
+        stock_flow_sentences.push(NamedStockFlowSentence::Boundary {
+            law: TrophicLaw::HarvestCorrespondence(consumer.clone()),
+            sentence: BoundaryCorrespondence::new(
+                SentenceId::new(format!("trophic.harvest-correspondence:{consumer}"))
+                    .map_err(evidence_error)?,
+                ledger.clone(),
+            ),
+            symbols: vec![SymbolId::Ledger(ledger), SymbolId::Boundary(boundary)],
+        });
+    }
+    let certificate = certify_nullspace(
+        &carrier,
+        kind.clone(),
+        stock_axes
+            .iter()
+            .cloned()
+            .map(|axis| (axis, BigRational::one())),
+    )
+    .map_err(evidence_error)?;
+    let open_balance = certificate
+        .open_balance(SentenceId::new("trophic.open-material-balance").map_err(evidence_error)?);
     let signature = ConservationSignature::new(
         stock_axes
             .iter()
@@ -920,7 +1615,7 @@ fn compile_evidence_plan(stock_names: &[String]) -> Result<ExactEvidencePlan, Tr
         sentence: GradedLaw::new(invariant, Grade::Invariant),
     }];
 
-    for (name, axis) in stock_names.iter().zip(&stock_axes) {
+    for (name, axis) in layout.stock_names.iter().zip(&stock_axes) {
         let form = BalanceLaw::new(
             kind.clone(),
             [(axis.clone(), BigRational::one())],
@@ -956,11 +1651,79 @@ fn compile_evidence_plan(stock_names: &[String]) -> Result<ExactEvidencePlan, Tr
 
     Ok(ExactEvidencePlan {
         signature,
+        carrier,
         stock_axes,
         cumulative_input_axis,
         cumulative_output_axis,
         sentences,
+        stock_flow_sentences,
+        open_balance,
     })
+}
+
+fn stock_flow_channel(flow: &TrophicFlow) -> Result<ChannelId, TrophicNetworkError> {
+    match flow {
+        TrophicFlow::NutrientInput => BoundaryId::new("nutrient-input")
+            .map(ChannelId::Boundary)
+            .map_err(evidence_error),
+        TrophicFlow::ProducerGrowth(producer) => FlowId::new(format!("growth:{producer}"))
+            .map(ChannelId::Internal)
+            .map_err(evidence_error),
+        TrophicFlow::FeedingAssimilation { consumer, resource } => {
+            FlowId::new(format!("feeding-assimilated:{consumer}:{resource}"))
+                .map(ChannelId::Internal)
+                .map_err(evidence_error)
+        }
+        TrophicFlow::FeedingWaste { consumer, resource } => {
+            FlowId::new(format!("feeding-waste:{consumer}:{resource}"))
+                .map(ChannelId::Internal)
+                .map_err(evidence_error)
+        }
+        TrophicFlow::Mortality(stock) => FlowId::new(format!("mortality:{stock}"))
+            .map(ChannelId::Internal)
+            .map_err(evidence_error),
+        TrophicFlow::Decomposition => FlowId::new("decomposition")
+            .map(ChannelId::Internal)
+            .map_err(evidence_error),
+        TrophicFlow::Harvest(consumer) => BoundaryId::new(format!("harvest:{consumer}"))
+            .map(ChannelId::Boundary)
+            .map_err(evidence_error),
+    }
+}
+
+fn input_ledger_id() -> Result<LedgerId, TrophicNetworkError> {
+    LedgerId::new(CUMULATIVE_INPUT).map_err(evidence_error)
+}
+
+fn harvest_ledger_id(consumer: &str) -> Result<LedgerId, TrophicNetworkError> {
+    LedgerId::new(format!("cumulative_harvest:{consumer}")).map_err(evidence_error)
+}
+
+fn exact_ledger_amounts(
+    carrier: &StockFlowCarrier,
+    inputs: &BigRational,
+    harvests: &BTreeMap<String, BigRational>,
+) -> Result<ExactAmounts<LedgerId>, TrophicNetworkError> {
+    let input = input_ledger_id()?;
+    ExactAmounts::new(
+        carrier
+            .identity()
+            .ledgers()
+            .iter()
+            .map(|(ledger, identity)| {
+                let amount = if ledger == &input {
+                    inputs.clone()
+                } else {
+                    let consumer = ledger
+                        .as_str()
+                        .strip_prefix("cumulative_harvest:")
+                        .expect("non-input trophic ledgers are per-consumer harvest ledgers");
+                    harvests[consumer].clone()
+                };
+                (ledger.clone(), identity.kind().clone(), amount)
+            }),
+    )
+    .map_err(evidence_error)
 }
 
 fn exact_trace_state(
@@ -1008,6 +1771,123 @@ fn evaluate_evidence(
         });
     }
     Ok(ExactTrophicNetworkEvidence { laws })
+}
+
+fn evaluate_law_suite(
+    plan: &ExactEvidencePlan,
+    states: &[TraceState],
+    transitions: &[ExactTrophicTransition],
+) -> Result<ExactTrophicLawSuiteEvidence, TrophicNetworkError> {
+    let transition_trace = TransitionTrace::new(
+        Arc::clone(&plan.carrier),
+        transitions
+            .iter()
+            .map(|transition| transition.record.clone())
+            .collect(),
+    )
+    .map_err(evidence_error)?;
+    let mut laws = Vec::new();
+    for named in &plan.stock_flow_sentences {
+        let evidence = match named {
+            NamedStockFlowSentence::Transition {
+                law,
+                sentence,
+                symbols,
+            } => CompleteTrophicLawEvidence {
+                law: law.clone(),
+                family: TrophicSentenceFamily::Transition,
+                symbols: symbols.clone(),
+                grade: None,
+                verdict: TrophicLawVerdict::Transition(
+                    check_transition_equation(sentence, &transition_trace)
+                        .map_err(evidence_error)?,
+                ),
+            },
+            NamedStockFlowSentence::FlowConstraint {
+                law,
+                sentence,
+                symbols,
+            } => CompleteTrophicLawEvidence {
+                law: law.clone(),
+                family: TrophicSentenceFamily::FlowConstraint,
+                symbols: symbols.clone(),
+                grade: None,
+                verdict: TrophicLawVerdict::FlowConstraint(
+                    check_linear_flow_constraint(sentence, &transition_trace)
+                        .map_err(evidence_error)?,
+                ),
+            },
+            NamedStockFlowSentence::Boundary {
+                law,
+                sentence,
+                symbols,
+            } => CompleteTrophicLawEvidence {
+                law: law.clone(),
+                family: TrophicSentenceFamily::Boundary,
+                symbols: symbols.clone(),
+                grade: None,
+                verdict: TrophicLawVerdict::Boundary(
+                    check_boundary_correspondence(sentence, &transition_trace)
+                        .map_err(evidence_error)?,
+                ),
+            },
+        };
+        laws.push(evidence);
+    }
+
+    let mut graded = evaluate_evidence(plan, states)?.laws;
+    graded.sort_by(|left, right| left.law.cmp(&right.law));
+    for evidence in graded {
+        let symbols = match evidence.law.axis_name() {
+            Some(axis) => vec![SymbolId::Axis(
+                AxisId::new(axis).expect("compiled trophic evidence axes are valid"),
+            )],
+            None => {
+                let mut axes = plan
+                    .stock_axes
+                    .iter()
+                    .cloned()
+                    .chain([
+                        plan.cumulative_input_axis.clone(),
+                        plan.cumulative_output_axis.clone(),
+                    ])
+                    .collect::<Vec<_>>();
+                axes.sort();
+                axes.into_iter().map(SymbolId::Axis).collect()
+            }
+        };
+        laws.push(CompleteTrophicLawEvidence {
+            law: evidence.law,
+            family: TrophicSentenceFamily::Graded,
+            symbols,
+            grade: Some(evidence.grade),
+            verdict: TrophicLawVerdict::Graded(evidence.verdict),
+        });
+    }
+
+    let mut open_axes = plan.stock_axes.clone();
+    open_axes.sort();
+    let mut open_symbols = open_axes
+        .into_iter()
+        .map(SymbolId::Axis)
+        .collect::<Vec<_>>();
+    open_symbols.extend(
+        plan.carrier
+            .boundary_effects()
+            .columns()
+            .cloned()
+            .map(SymbolId::Boundary),
+    );
+    laws.push(CompleteTrophicLawEvidence {
+        law: TrophicLaw::OpenMaterialBalance,
+        family: TrophicSentenceFamily::OpenBalance,
+        symbols: open_symbols,
+        grade: None,
+        verdict: TrophicLawVerdict::OpenBalance(
+            check_open_balance(&plan.open_balance, &transition_trace).map_err(evidence_error)?,
+        ),
+    });
+    Ok(ExactTrophicLawSuiteEvidence { laws })
 }
 
 fn evidence_error(error: impl fmt::Display) -> TrophicNetworkError {
@@ -1115,6 +1995,43 @@ fn compile_network<N: Clone>(
     }
 
     let flow_count = flows.len();
+    let mut flow_symbols = vec![None; flow_count];
+    flow_symbols[nutrient_input_flow] = Some(TrophicFlow::NutrientInput);
+    for producer in &spec.producers {
+        flow_symbols[growth_flows[&producer.name]] =
+            Some(TrophicFlow::ProducerGrowth(producer.name.clone()));
+    }
+    for feeding in &spec.feedings {
+        let (assimilation, waste) =
+            feeding_flows[&(feeding.consumer.clone(), feeding.resource.clone())];
+        flow_symbols[assimilation] = Some(TrophicFlow::FeedingAssimilation {
+            consumer: feeding.consumer.clone(),
+            resource: feeding.resource.clone(),
+        });
+        flow_symbols[waste] = Some(TrophicFlow::FeedingWaste {
+            consumer: feeding.consumer.clone(),
+            resource: feeding.resource.clone(),
+        });
+    }
+    for name in spec
+        .producers
+        .iter()
+        .map(|producer| producer.name.as_str())
+        .chain(spec.consumers.iter().map(|consumer| consumer.name.as_str()))
+    {
+        flow_symbols[mortality_flows[name]] = Some(TrophicFlow::Mortality(name.to_owned()));
+    }
+    flow_symbols[decomposition_flow] = Some(TrophicFlow::Decomposition);
+    for consumer in &spec.consumers {
+        flow_symbols[harvest_flows[&consumer.name]] =
+            Some(TrophicFlow::Harvest(consumer.name.clone()));
+    }
+    let flow_symbols = flow_symbols
+        .into_iter()
+        .map(|symbol| symbol.expect("every compiled flow has one semantic symbol"))
+        .collect();
+    let mut boundary_symbols = vec![TrophicBoundary::NutrientInput];
+    boundary_symbols.extend(harvest_flows.keys().cloned().map(TrophicBoundary::Harvest));
     let topology = Arc::new(FlowTopology::new(stock_definitions, flows)?);
     let layout = Arc::new(NetworkLayout {
         topology,
@@ -1128,6 +2045,8 @@ fn compile_network<N: Clone>(
         nutrient_input_flow,
         decomposition_flow,
         flow_count,
+        flow_symbols,
+        boundary_symbols,
     });
     let producers = spec
         .producers
@@ -1157,6 +2076,8 @@ fn compile_network<N: Clone>(
         .map(|feeding| {
             let flows = feeding_flows[&(feeding.consumer.clone(), feeding.resource.clone())];
             FeedingRate {
+                consumer: feeding.consumer.clone(),
+                resource: feeding.resource.clone(),
                 resource_stock: stock_indices[&feeding.resource],
                 consumer_stock: stock_indices[&feeding.consumer],
                 assimilation_flow: flows.0,
@@ -1562,23 +2483,44 @@ mod evidence_tests {
         cumulative_input: i64,
         cumulative_output: i64,
     ) -> TraceState {
-        TraceState::new([
-            (plan.stock_axes[0].clone(), integer(stock)),
-            (
-                plan.cumulative_input_axis.clone(),
-                integer(cumulative_input),
-            ),
-            (
-                plan.cumulative_output_axis.clone(),
-                integer(cumulative_output),
-            ),
-        ])
-        .unwrap()
+        let mut values = plan
+            .stock_axes
+            .iter()
+            .cloned()
+            .map(|axis| {
+                let amount = if axis.as_str() == NUTRIENT {
+                    integer(stock)
+                } else {
+                    integer(0)
+                };
+                (axis, amount)
+            })
+            .collect::<Vec<_>>();
+        values.push((
+            plan.cumulative_input_axis.clone(),
+            integer(cumulative_input),
+        ));
+        values.push((
+            plan.cumulative_output_axis.clone(),
+            integer(cumulative_output),
+        ));
+        TraceState::new(values).unwrap()
+    }
+
+    fn evidence_plan() -> ExactEvidencePlan {
+        let compiled = compile_network(TrophicNetworkSpec::new(
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            integer(0),
+        ))
+        .unwrap();
+        compile_evidence_plan(&compiled).unwrap()
     }
 
     #[test]
     fn compiled_stock_sentence_exposes_negative_stock_hidden_by_invariant_total() {
-        let plan = compile_evidence_plan(&["nutrient".to_owned()]).unwrap();
+        let plan = evidence_plan();
         let evidence =
             evaluate_evidence(&plan, &[state(&plan, 1, 0, 0), state(&plan, -1, 0, 2)]).unwrap();
 
@@ -1606,7 +2548,7 @@ mod evidence_tests {
 
     #[test]
     fn compiled_boundary_sentence_reports_first_decreasing_ledger_state() {
-        let plan = compile_evidence_plan(&["nutrient".to_owned()]).unwrap();
+        let plan = evidence_plan();
         let evidence =
             evaluate_evidence(&plan, &[state(&plan, 1, 1, 0), state(&plan, 0, 0, 0)]).unwrap();
 

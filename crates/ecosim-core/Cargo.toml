@@ -13,6 +13,7 @@ conservation-core = { git = "https://github.com/ctoth/conservation.git", rev = "
 conservation-dynamics = { git = "https://github.com/ctoth/conservation.git", rev = "dd21f6b1fee852b62328dac8aaf7138e45551272" }
 conservation-linear = { git = "https://github.com/ctoth/conservation.git", rev = "dd21f6b1fee852b62328dac8aaf7138e45551272" }
 conservation-trace = { git = "https://github.com/ctoth/conservation.git", rev = "dd21f6b1fee852b62328dac8aaf7138e45551272" }
+conservation-stock-flow = { path = "../../../conservation/conservation-stock-flow" }
 institution = { git = "https://github.com/ctoth/institution.git", rev = "16109396f9cc68c705a941b9b039758486597389" }
 institution-conservation = { git = "https://github.com/ctoth/institution.git", rev = "16109396f9cc68c705a941b9b039758486597389" }
 libm.workspace = true

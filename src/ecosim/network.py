@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from fractions import Fraction
 
 import numpy as np
 from numpy.typing import NDArray
@@ -85,6 +86,33 @@ class TrophicEvidence:
         return all(evidence.satisfied for evidence in self.laws)
 
 
+@dataclass(frozen=True)
+class ExactFlowEvidence:
+    """One semantic proposal and its kernel-settled exact amount."""
+
+    name: str
+    proposed: Fraction
+    settled: Fraction
+
+
+@dataclass(frozen=True)
+class ExactTransitionEvidence:
+    """Exact process evidence for one committed trophic transition."""
+
+    index: int
+    time_before: Fraction
+    time_after: Fraction
+    flows: tuple[ExactFlowEvidence, ...]
+
+
+@dataclass(frozen=True)
+class ExactPairedSentenceEvidence:
+    """One exact comparative verdict produced by the Rust paired-run theory."""
+
+    satisfied: bool
+    delta: Fraction
+
+
 def _producer_tuples(spec: TrophicNetworkSpec) -> list[tuple[str, float, float, float]]:
     return [
         (
@@ -142,6 +170,10 @@ class TrophicNetworkPlan:
     @property
     def evidence_laws(self) -> tuple[TrophicLaw, ...]:
         return tuple(TrophicLaw(*law) for law in self._inner.evidence_laws)
+
+    @property
+    def law_suite_laws(self) -> tuple[TrophicLaw, ...]:
+        return tuple(TrophicLaw(*law) for law in self._inner.law_suite_laws)
 
     def start(self, initial: Mapping[str, float]) -> TrophicNetwork:
         return TrophicNetwork.from_compiled(self._inner.start(dict(initial)))
@@ -218,6 +250,15 @@ class TrophicNetwork:
         return self._inner.stock(name)
 
     @property
+    def exact_stocks(self) -> Mapping[str, Fraction]:
+        """Exact current stock values, without binary64 projection."""
+
+        return {
+            name: Fraction(numerator, denominator)
+            for name, numerator, denominator in self._inner.exact_stocks()
+        }
+
+    @property
     def inputs(self) -> float:
         return self._inner.inputs
 
@@ -243,6 +284,74 @@ class TrophicNetwork:
                 TrophicLawEvidence(TrophicLaw(name, axis_name, grade), satisfied)
                 for name, axis_name, grade, satisfied in self._inner.evidence()
             )
+        )
+
+    def law_evidence(self) -> TrophicEvidence:
+        """Complete transition, process, boundary, graded, and balance evidence."""
+
+        return TrophicEvidence(
+            tuple(
+                TrophicLawEvidence(TrophicLaw(name, axis_name, grade), satisfied)
+                for name, axis_name, grade, satisfied in self._inner.law_evidence()
+            )
+        )
+
+    def paired_terminal_sentence(
+        self,
+        perturbed: TrophicNetwork,
+        baseline_id: str,
+        perturbed_id: str,
+        sentence_name: str,
+        axis: str,
+        relation: str,
+        threshold: Fraction,
+    ) -> ExactPairedSentenceEvidence:
+        """Checks one terminal comparison over two sealed exact run audits."""
+
+        satisfied, numerator, denominator = self._inner.paired_terminal_sentence(
+            perturbed._inner,
+            baseline_id,
+            perturbed_id,
+            sentence_name,
+            axis,
+            relation,
+            threshold.numerator,
+            threshold.denominator,
+        )
+        return ExactPairedSentenceEvidence(
+            satisfied,
+            Fraction(numerator, denominator),
+        )
+
+    @property
+    def transition_count(self) -> int:
+        return self._inner.transition_count
+
+    @property
+    def transitions(self) -> tuple[ExactTransitionEvidence, ...]:
+        """Committed exact proposed/settled flow records."""
+
+        return tuple(
+            ExactTransitionEvidence(
+                index,
+                Fraction(*time_before),
+                Fraction(*time_after),
+                tuple(
+                    ExactFlowEvidence(
+                        name,
+                        Fraction(proposed_numerator, proposed_denominator),
+                        Fraction(settled_numerator, settled_denominator),
+                    )
+                    for (
+                        name,
+                        proposed_numerator,
+                        proposed_denominator,
+                        settled_numerator,
+                        settled_denominator,
+                    ) in flows
+                ),
+            )
+            for index, time_before, time_after, flows in self._inner.transitions()
         )
 
     def step(

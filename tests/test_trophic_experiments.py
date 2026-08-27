@@ -104,8 +104,12 @@ def test_frozen_cascade_confirms_behavior_exact_signs_and_institutional_evidence
     ):
         assert comparison.baseline.evidence.satisfied
         assert comparison.perturbed.evidence.satisfied
-        assert len(comparison.baseline.evidence.laws) == 8
-        assert len(comparison.perturbed.evidence.laws) == 8
+        assert len(comparison.baseline.evidence.laws) > 8
+        assert len(comparison.perturbed.evidence.laws) > 8
+        assert comparison.baseline.transitions
+        assert comparison.perturbed.transitions
+        assert comparison.baseline.exact_terminal
+        assert comparison.perturbed.exact_terminal
 
 
 def test_frozen_dense_trajectories_obey_preregistered_boundary_accounts(

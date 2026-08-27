@@ -2,6 +2,7 @@ import math
 import sys
 import threading
 import time
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -119,11 +120,21 @@ def test_exact_python_plan_exposes_compiled_evidence_and_run_verdicts() -> None:
 
     run.step(0.25, nutrient_input=2.0, harvests={"grazer": 0.5})
     evidence = run.evidence()
+    law_evidence = run.law_evidence()
 
     assert run.trace_length == 2
     assert evidence.satisfied
     assert len(evidence.laws) == 8
     assert all(law.satisfied for law in evidence.laws)
+    assert law_evidence.satisfied
+    assert len(law_evidence.laws) == 13
+    assert plan.law_suite_laws[0].name == "transition_equation"
+    assert plan.law_suite_laws[-1].name == "open_material_balance"
+    assert run.transition_count == 1
+    assert run.transitions[0].time_before == Fraction(0)
+    assert run.transitions[0].time_after == Fraction(1, 4)
+    assert all(flow.settled <= flow.proposed for flow in run.transitions[0].flows)
+    assert run.exact_stocks["nutrient"].denominator > 0
 
 
 def test_dense_plan_batch_matches_individual_runs_with_forcing() -> None:

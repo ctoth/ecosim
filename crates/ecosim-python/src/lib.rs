@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
 
 use ecosim_core::{
-    BalanceReport, Compartment, ConsumerSpec, DenseFoodWeb, DenseFoodWebParameters,
-    DenseFoodWebStep, DenseTrophicNetwork, DenseTrophicNetworkPlan, DenseTrophicNetworkStep,
-    ExactTrophicNetwork, ExactTrophicNetworkPlan, ExactTrophicNetworkStep, FeedingSpec, FoodWeb,
-    FoodWebError, FoodWebParameters, FoodWebStep, ProducerSpec, TrophicLaw, TrophicNetworkError,
-    TrophicNetworkSpec, World, WorldError, energy_law, integer_amount,
+    BalanceReport, ComparisonRelation, Compartment, ConsumerSpec, DenseFoodWeb,
+    DenseFoodWebParameters, DenseFoodWebStep, DenseTrophicNetwork, DenseTrophicNetworkPlan,
+    DenseTrophicNetworkStep, ExactPairedModel, ExactRunRecord, ExactTrophicNetwork,
+    ExactTrophicNetworkPlan, ExactTrophicNetworkStep, FeedingSpec, FoodWeb, FoodWebError,
+    FoodWebParameters, FoodWebStep, PairedComparisonSentence, PairedComparisonVerdict,
+    ProducerSpec, TrophicFlow, TrophicLaw, TrophicNetworkError, TrophicNetworkSpec,
+    TrophicSentenceFamily, World, WorldError, energy_law, integer_amount,
 };
 use num_bigint::BigInt;
 use num_rational::BigRational;
@@ -46,6 +48,10 @@ fn approximate(value: &BigRational) -> PyResult<f64> {
 
 fn integer(value: BigInt) -> BigRational {
     integer_amount(value)
+}
+
+fn rational_parts(value: &BigRational) -> (BigInt, BigInt) {
+    (value.numer().clone(), value.denom().clone())
 }
 
 fn exact_integer(value: &BigRational) -> PyResult<BigInt> {
@@ -645,6 +651,21 @@ impl PyTrophicNetworkPlan {
             .collect()
     }
 
+    #[getter]
+    fn law_suite_laws(&self) -> Vec<(String, Option<String>, String)> {
+        self.inner
+            .law_suite_laws()
+            .iter()
+            .map(|law| {
+                (
+                    trophic_law_name(law).to_owned(),
+                    law.axis_name().map(str::to_owned),
+                    trophic_law_grade(law).to_owned(),
+                )
+            })
+            .collect()
+    }
+
     fn start(&self, initial: BTreeMap<String, f64>) -> PyResult<PyTrophicNetwork> {
         Ok(PyTrophicNetwork {
             inner: self
@@ -691,6 +712,18 @@ impl PyTrophicNetwork {
             .and_then(approximate)
     }
 
+    fn exact_stocks(&self) -> Vec<(String, BigInt, BigInt)> {
+        self.inner
+            .stock_names()
+            .iter()
+            .zip(self.inner.amounts())
+            .map(|(name, amount)| {
+                let (numerator, denominator) = rational_parts(amount);
+                (name.clone(), numerator, denominator)
+            })
+            .collect()
+    }
+
     #[getter]
     fn inputs(&self) -> PyResult<f64> {
         approximate(&self.inner.inputs())
@@ -734,6 +767,122 @@ impl PyTrophicNetwork {
             .collect())
     }
 
+    fn law_evidence(&self) -> PyResult<Vec<PyTrophicLawEvidence>> {
+        Ok(self
+            .inner
+            .law_evidence()
+            .map_err(invalid_trophic_network)?
+            .laws()
+            .iter()
+            .map(|evidence| {
+                (
+                    trophic_law_name(evidence.law()).to_owned(),
+                    evidence.law().axis_name().map(str::to_owned),
+                    evidence.grade().map_or_else(
+                        || trophic_family_name(evidence.family()).to_owned(),
+                        |grade| grade.to_string(),
+                    ),
+                    evidence.is_satisfied(),
+                )
+            })
+            .collect())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn paired_terminal_sentence(
+        &self,
+        perturbed: &PyTrophicNetwork,
+        baseline_id: &str,
+        perturbed_id: &str,
+        sentence_name: &str,
+        axis: &str,
+        relation: &str,
+        threshold_numerator: BigInt,
+        threshold_denominator: BigInt,
+    ) -> PyResult<(bool, BigInt, BigInt)> {
+        if threshold_denominator == BigInt::from(0) {
+            return Err(PyValueError::new_err(
+                "comparison threshold denominator must be nonzero",
+            ));
+        }
+        let relation = match relation {
+            "greater_than" => ComparisonRelation::GreaterThan,
+            "less_than" => ComparisonRelation::LessThan,
+            _ => {
+                return Err(PyValueError::new_err(
+                    "comparison relation must be greater_than or less_than",
+                ));
+            }
+        };
+        let baseline = ExactRunRecord::from_trophic_network(baseline_id, &self.inner)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let perturbed = ExactRunRecord::from_trophic_network(perturbed_id, &perturbed.inner)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let model = ExactPairedModel::new(baseline, perturbed)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let sentence = PairedComparisonSentence::new(
+            sentence_name,
+            axis,
+            relation,
+            BigRational::new(threshold_numerator, threshold_denominator),
+        )
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let evidence = model
+            .evaluate(&[sentence])
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let (satisfied, delta) = match &evidence.verdicts()[0] {
+            PairedComparisonVerdict::Satisfied(witness) => (true, &witness.delta),
+            PairedComparisonVerdict::Violated(violation) => (false, &violation.delta),
+        };
+        let (numerator, denominator) = rational_parts(delta);
+        Ok((satisfied, numerator, denominator))
+    }
+
+    #[getter]
+    fn transition_count(&self) -> usize {
+        self.inner.transitions().len()
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn transitions(
+        &self,
+    ) -> Vec<(
+        usize,
+        (BigInt, BigInt),
+        (BigInt, BigInt),
+        Vec<(String, BigInt, BigInt, BigInt, BigInt)>,
+    )> {
+        self.inner
+            .transitions()
+            .iter()
+            .map(|transition| {
+                let flows = transition
+                    .flow_symbols()
+                    .iter()
+                    .zip(transition.proposed_amounts())
+                    .zip(transition.settled_amounts())
+                    .map(|((flow, proposed), settled)| {
+                        let (proposed_numerator, proposed_denominator) = rational_parts(proposed);
+                        let (settled_numerator, settled_denominator) = rational_parts(settled);
+                        (
+                            trophic_flow_name(flow),
+                            proposed_numerator,
+                            proposed_denominator,
+                            settled_numerator,
+                            settled_denominator,
+                        )
+                    })
+                    .collect();
+                (
+                    transition.index(),
+                    rational_parts(transition.time_before()),
+                    rational_parts(transition.time_after()),
+                    flows,
+                )
+            })
+            .collect()
+    }
+
     #[pyo3(signature = (elapsed, nutrient_input=0.0, harvests=None))]
     fn step(
         &mut self,
@@ -756,20 +905,57 @@ impl PyTrophicNetwork {
 
 fn trophic_law_name(law: &TrophicLaw) -> &'static str {
     match law {
+        TrophicLaw::TransitionEquation => "transition_equation",
+        TrophicLaw::FeedingPartition { .. } => "feeding_partition",
+        TrophicLaw::NutrientInputCorrespondence => "nutrient_input_correspondence",
+        TrophicLaw::HarvestCorrespondence(_) => "harvest_correspondence",
         TrophicLaw::MaterialInvariant => "material_invariant",
         TrophicLaw::StockNonnegative(_) => "stock_nonnegative",
         TrophicLaw::CumulativeInputNondecreasing => "cumulative_input_nondecreasing",
         TrophicLaw::CumulativeOutputNondecreasing => "cumulative_output_nondecreasing",
+        TrophicLaw::OpenMaterialBalance => "open_material_balance",
     }
 }
 
 fn trophic_law_grade(law: &TrophicLaw) -> &'static str {
     match law {
+        TrophicLaw::TransitionEquation => "transition",
+        TrophicLaw::FeedingPartition { .. } => "flow_constraint",
+        TrophicLaw::NutrientInputCorrespondence | TrophicLaw::HarvestCorrespondence(_) => {
+            "boundary"
+        }
         TrophicLaw::MaterialInvariant => "invariant",
         TrophicLaw::StockNonnegative(_) => "nonnegative",
         TrophicLaw::CumulativeInputNondecreasing | TrophicLaw::CumulativeOutputNondecreasing => {
             "nondecreasing"
         }
+        TrophicLaw::OpenMaterialBalance => "open_balance",
+    }
+}
+
+fn trophic_family_name(family: TrophicSentenceFamily) -> &'static str {
+    match family {
+        TrophicSentenceFamily::Transition => "transition",
+        TrophicSentenceFamily::FlowConstraint => "flow_constraint",
+        TrophicSentenceFamily::Boundary => "boundary",
+        TrophicSentenceFamily::Graded => "graded",
+        TrophicSentenceFamily::OpenBalance => "open_balance",
+    }
+}
+
+fn trophic_flow_name(flow: &TrophicFlow) -> String {
+    match flow {
+        TrophicFlow::NutrientInput => "input:nutrient".to_owned(),
+        TrophicFlow::ProducerGrowth(producer) => format!("growth:{producer}"),
+        TrophicFlow::FeedingAssimilation { consumer, resource } => {
+            format!("feeding-assimilated:{consumer}:{resource}")
+        }
+        TrophicFlow::FeedingWaste { consumer, resource } => {
+            format!("feeding-waste:{consumer}:{resource}")
+        }
+        TrophicFlow::Mortality(stock) => format!("mortality:{stock}"),
+        TrophicFlow::Decomposition => "decomposition".to_owned(),
+        TrophicFlow::Harvest(consumer) => format!("harvest:{consumer}"),
     }
 }
 

@@ -371,8 +371,9 @@ Acceptance criteria:
   does not define a non-locally-constant first integral, and empty or fully
   cancelled inputs are rejected as validation cases;
 - a derived basis is independent and has size `rows(S) - rank(S)`;
-- project provenance distinguishes Mahdi-style stoichiometric derivations from
-  separately sourced incidence derivations;
+- generic linear provenance distinguishes Mahdi-style stoichiometric
+  derivations from separately sourced incidence derivations, while the first
+  unit-transfer `StockFlowCarrier` seals its own certificates as incidence-derived;
 - derivation evidence is not copied from caller-selected provenance metadata;
 - generated models satisfying the project's discrete transition equation also
   satisfy every certified derived open-balance sentence;
@@ -493,8 +494,10 @@ Acceptance criteria:
 ### Phase 9 — Paired-run experiment sentences
 
 Turn the exact portion of the frozen cascade's hypotheses into sentences over
-paired models sharing one compiled topology, parameter set, observation rule,
-and intervention schedule.
+paired models sharing one compiled topology, parameter set, terminal
+observation rule, horizon, and exact observation-time grid. Each arm retains
+its own audited forcing schedule because the intervention is the intended
+difference between treatment and control.
 
 The initial sentence family supports named signed comparisons such as:
 
@@ -583,89 +586,89 @@ committed, available from their configured remotes, and migrated together.
 
 ### Conservation carrier
 
-- [ ] Add validated flow and boundary identifiers.
-- [ ] Add exact internal and boundary effect matrices.
-- [ ] Add immutable exact transition records and traces.
-- [ ] Add transition-equation checking and typed verdicts.
-- [ ] Add linear flow-constraint checking and typed verdicts.
-- [ ] Add boundary-correspondence checking and typed verdicts.
-- [ ] Seal checked nullspace derivation certificates.
-- [ ] Prove derived basis independence and `rows(S) - rank(S)` size.
-- [ ] Derive open-balance sentences from valid certificates.
-- [ ] Add generated carrier, checker, and certificate tests.
+- [x] Add validated flow and boundary identifiers.
+- [x] Add exact internal and boundary effect matrices.
+- [x] Add immutable exact transition records and traces.
+- [x] Add transition-equation checking and typed verdicts.
+- [x] Add linear flow-constraint checking and typed verdicts.
+- [x] Add boundary-correspondence checking and typed verdicts.
+- [x] Seal checked nullspace derivation certificates.
+- [x] Prove derived basis independence and `rows(S) - rank(S)` size.
+- [x] Derive open-balance sentences from valid certificates.
+- [x] Add generated carrier, checker, and certificate tests.
 
 ### Stock–flow institution
 
-- [ ] Add stock–flow signatures and validated renamings.
-- [ ] Add the stock–flow sentence sum type.
-- [ ] Add stock–flow models and reducts.
-- [ ] Translate every stock, flow, boundary, kind, and matrix coordinate covariantly.
-- [ ] Delegate satisfaction to typed conservation checkers.
-- [ ] Test identity, composition, translation, and reduct laws.
-- [ ] Test the satisfaction condition for every sentence family.
-- [ ] Demonstrate one shared neutral sentence in ecological and economic names.
+- [x] Add stock–flow signatures and validated renamings.
+- [x] Add the stock–flow sentence sum type.
+- [x] Add stock–flow models and reducts.
+- [x] Translate every stock, flow, boundary, kind, and matrix coordinate covariantly.
+- [x] Delegate satisfaction to typed conservation checkers.
+- [x] Test identity, composition, translation, and reduct laws.
+- [x] Test the satisfaction condition for every sentence family.
+- [x] Demonstrate one shared neutral sentence in ecological and economic names.
 
 ### Ecosim transition evidence
 
-- [ ] Compile stable trophic flow and boundary symbols.
-- [ ] Record actual settled internal-flow and boundary-flow amounts.
-- [ ] Preserve exact atomicity and independent-run contracts.
-- [ ] Expose transition witnesses and violations through Rust.
-- [ ] Expose faithful evidence summaries through Python.
-- [ ] Retain exact-versus-dense evidence separation.
-- [ ] Re-run the frozen cascade without changing its declared scenario.
+- [x] Compile stable trophic flow and boundary symbols.
+- [x] Record actual settled internal-flow and boundary-flow amounts.
+- [x] Preserve exact atomicity and independent-run contracts.
+- [x] Expose transition witnesses and violations through Rust.
+- [x] Expose faithful evidence summaries through Python.
+- [x] Retain exact-versus-dense evidence separation.
+- [x] Re-run the frozen cascade without changing its declared scenario.
 
 ### Ecosystem law suite
 
-- [ ] Compile the complete transition equation.
-- [ ] Compile one feeding-partition constraint per feeding edge.
-- [ ] Compile input-ledger correspondence.
-- [ ] Compile per-consumer harvest-ledger correspondence.
-- [ ] Derive and check open material balance.
-- [ ] Combine new verdicts with the existing graded state laws.
-- [ ] Add generated valid-run satisfaction properties.
-- [ ] Add balanced-but-misrouted and wrong-partition counterexamples.
+- [x] Compile the complete transition equation.
+- [x] Compile one feeding-partition constraint per feeding edge.
+- [x] Compile input-ledger correspondence.
+- [x] Compile per-consumer harvest-ledger correspondence.
+- [x] Derive and check open material balance.
+- [x] Combine new verdicts with the existing graded state laws.
+- [x] Add generated valid-run satisfaction properties.
+- [x] Add balanced-but-misrouted and wrong-partition counterexamples.
 
 ### Multi-kind balances
 
-- [ ] Declare a synthetic C/N/P/energy ecosystem fixture.
-- [ ] Assign exactly one kind to every scalar axis and flow.
-- [ ] Reject matrix effects between incompatible stock and flow kinds.
-- [ ] Derive separate C, N, and P open balances.
-- [ ] Declare energy input, heat, work, and export ports.
-- [ ] Reject cross-kind sentence construction.
-- [ ] Produce exact positive and negative evidence cases.
-- [ ] Document every system boundary and non-validation claim.
+- [x] Declare a synthetic C/N/P/energy ecosystem fixture.
+- [x] Assign exactly one kind to every scalar axis and flow.
+- [x] Reject matrix effects between incompatible stock and flow kinds.
+- [x] Derive separate C, N, and P open balances.
+- [x] Declare energy input, heat, work, and export ports.
+- [x] Reject cross-kind sentence construction.
+- [x] Produce exact positive and negative evidence cases.
+- [x] Document every system boundary and non-validation claim.
 
 ### Constitutive laws
 
-- [ ] Record proposed flows separately from settled flows.
-- [ ] Define domain-owned exact kinetic sentence semantics.
-- [ ] Check producer-growth, feeding, mortality, and decomposition proposals.
-- [ ] Check settlement bounds and proportional source limitation.
-- [ ] Prove zero-actor and zero-required-resource cases cannot create flow.
-- [ ] Add generated kinetic and allocation counterexamples.
-- [ ] Keep nonlinear ecosystem theory out of shared crates pending a second client.
+- [x] Record proposed flows separately from settled flows.
+- [x] Define domain-owned exact kinetic sentence semantics.
+- [x] Check producer-growth, feeding, mortality, and decomposition proposals.
+- [x] Check settlement bounds and proportional source limitation.
+- [x] Prove zero-actor and zero-required-resource cases cannot create flow.
+- [x] Add generated kinetic and allocation counterexamples.
+- [x] Keep nonlinear ecosystem theory out of shared crates pending a second client.
 
 ### Paired-run sentences
 
-- [ ] Define exact paired-model well-formedness.
-- [ ] Define named signed terminal-response sentences.
-- [ ] Return exact comparative witnesses and violations.
-- [ ] Institutionalize the frozen cascade's selected exact sign claims.
-- [ ] Prove comparative satisfaction under conservative renaming.
-- [ ] Keep dense comparisons explicitly numerical and unaudited.
+- [x] Define exact paired-model well-formedness.
+- [x] Define named signed terminal-response sentences.
+- [x] Return exact comparative witnesses and violations.
+- [x] Institutionalize the frozen cascade's selected exact sign claims.
+- [x] Prove comparative satisfaction under conservative renaming.
+- [x] Keep dense comparisons explicitly numerical and unaudited.
 
 ### Handoff and completion
 
-- [ ] Update the ecosystem-to-economics mapping from implemented types.
-- [ ] Decide whether a concrete economics client is sufficiently specified.
-- [ ] Decide whether any additional shared extraction is justified.
-- [ ] Complete adversarial review in every affected repository.
-- [ ] Document commands sufficient to reproduce every committed result.
-- [ ] Verify that no PDF or PNG artifact is tracked or introduced into history.
-- [ ] Run all Rust, Python, property, type, package, and diff gates.
-- [ ] Commit only scoped project artifacts; preserve append-only notes uncommitted.
+- [x] Update the ecosystem-to-economics mapping from implemented types.
+- [x] Decide whether a concrete economics client is sufficiently specified.
+- [x] Decide whether any additional shared extraction is justified.
+- [x] Complete adversarial review in every affected repository.
+- [x] Document commands sufficient to reproduce every committed result.
+- [x] Verify that no PDF or PNG artifact is tracked or introduced into history.
+- [x] Run all Rust, Python, property, type, package, and diff gates.
+- [x] Commit only scoped project artifacts; preserve append-only notes uncommitted.
 
 ## Definition of done
 

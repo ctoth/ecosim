@@ -3,6 +3,8 @@
 //! Conserved exact and dense foundations for ecosystem simulation.
 
 mod food_web;
+mod kinetics;
+mod multikind_fixture;
 mod paired;
 pub mod paper_models;
 mod trophic_network;
@@ -11,16 +13,23 @@ pub use food_web::{
     DenseFoodWeb, DenseFoodWebParameters, DenseFoodWebStep, FoodWeb, FoodWebError,
     FoodWebParameters, FoodWebStep,
 };
+pub use kinetics::{
+    AllocationSentence, AllocationVerdict, AllocationViolation, AllocationWitness, KineticError,
+    KineticLaw, KineticSentence, KineticVerdict, KineticViolation, KineticWitness,
+};
+pub use multikind_fixture::{SyntheticMultikindFixture, synthetic_multikind_fixture};
 pub use paired::{
     ComparisonRelation, ExactPairError, ExactPairedModel, ExactRunRecord, PairedComparisonSentence,
     PairedComparisonVerdict, PairedComparisonViolation, PairedComparisonWitness, PairedEvidence,
 };
 pub use trophic_network::{
-    ConsumerSpec, DenseTrophicNetwork, DenseTrophicNetworkPlan, DenseTrophicNetworkStep,
-    ExactTrophicNetwork, ExactTrophicNetworkEvidence, ExactTrophicNetworkPlan,
-    ExactTrophicNetworkStep, FeedingSpec, ProducerSpec, TROPHIC_DENSE_BALANCE_ABSOLUTE_TOLERANCE,
-    TROPHIC_DENSE_BALANCE_RELATIVE_TOLERANCE, TrophicLaw, TrophicLawEvidence, TrophicNetworkError,
-    TrophicNetworkSpec, trophic_dense_balance_tolerance,
+    CompleteTrophicLawEvidence, ConsumerSpec, DenseTrophicNetwork, DenseTrophicNetworkPlan,
+    DenseTrophicNetworkStep, ExactTrophicLawSuiteEvidence, ExactTrophicNetwork,
+    ExactTrophicNetworkEvidence, ExactTrophicNetworkPlan, ExactTrophicNetworkStep,
+    ExactTrophicTransition, FeedingSpec, ProducerSpec, TROPHIC_DENSE_BALANCE_ABSOLUTE_TOLERANCE,
+    TROPHIC_DENSE_BALANCE_RELATIVE_TOLERANCE, TrophicBoundary, TrophicFlow, TrophicLaw,
+    TrophicLawEvidence, TrophicLawVerdict, TrophicNetworkError, TrophicNetworkSpec,
+    TrophicSentenceFamily, trophic_dense_balance_tolerance,
 };
 
 use std::error::Error as StdError;

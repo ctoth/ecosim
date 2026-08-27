@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from fractions import Fraction
 
 import numpy as np
 from numpy.typing import NDArray
 
 from ecosim.network import (
     DenseTrophicNetworkPlan,
+    ExactPairedSentenceEvidence,
+    ExactTransitionEvidence,
     TrophicEvidence,
+    TrophicNetwork,
     TrophicNetworkPlan,
 )
 
@@ -215,6 +219,29 @@ class ExactTrophicAudit:
     evidence: TrophicEvidence
     cumulative_input: float
     cumulative_output: float
+    exact_terminal: Mapping[str, Fraction]
+    transitions: tuple[ExactTransitionEvidence, ...]
+    _run: TrophicNetwork = field(repr=False, compare=False)
+
+    def paired_terminal_sentence(
+        self,
+        perturbed: ExactTrophicAudit,
+        name: str,
+        axis: str,
+        relation: str,
+        threshold: Fraction,
+    ) -> ExactPairedSentenceEvidence:
+        """Evaluates one paired sentence with this audit as the baseline arm."""
+
+        return self._run.paired_terminal_sentence(
+            perturbed._run,
+            "baseline",
+            "perturbed",
+            name,
+            axis,
+            relation,
+            threshold,
+        )
 
 
 @dataclass(frozen=True)
@@ -230,6 +257,23 @@ class ExactTrophicComparison:
             self,
             "response",
             TrophicResponse(self.baseline.trajectory, self.perturbed.trajectory),
+        )
+
+    def evaluate_terminal_sentence(
+        self,
+        name: str,
+        axis: str,
+        relation: str,
+        threshold: Fraction,
+    ) -> ExactPairedSentenceEvidence:
+        """Evaluates a core paired-model sentence over both sealed run audits."""
+
+        return self.baseline.paired_terminal_sentence(
+            self.perturbed,
+            name,
+            axis,
+            relation,
+            threshold,
         )
 
 
@@ -315,7 +359,10 @@ def audit_exact_trophic_run(
             plan.stock_names,
             plan.consumer_names,
         ),
-        evidence=run.evidence(),
+        evidence=run.law_evidence(),
         cumulative_input=run.inputs,
         cumulative_output=run.outputs,
+        exact_terminal=run.exact_stocks,
+        transitions=run.transitions,
+        _run=run,
     )

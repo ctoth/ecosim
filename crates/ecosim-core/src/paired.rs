@@ -4,62 +4,79 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
+use conservation_stock_flow::BoundaryId;
 use num_rational::BigRational;
-use num_traits::Zero;
+
+use crate::trophic_network::{
+    ExactTrophicLawSuiteEvidence, ExactTrophicNetwork, ExactTrophicPlanIdentity,
+    ExactTrophicTransition,
+};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ExactScheduleStep {
+    elapsed: BigRational,
+    requested_boundaries: Vec<(BoundaryId, BigRational)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AuditedExactRun {
+    plan: ExactTrophicPlanIdentity,
+    schedule: Vec<ExactScheduleStep>,
+    transitions: Vec<ExactTrophicTransition>,
+    law_evidence: ExactTrophicLawSuiteEvidence,
+}
 
 /// Exact metadata and terminal observations for one audited run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExactRunRecord {
     run_id: String,
-    topology: String,
-    parameters: String,
-    observation_rule: String,
-    paired_schedule: String,
-    horizon: usize,
-    elapsed: BigRational,
+    audit: AuditedExactRun,
     terminal: BTreeMap<String, BigRational>,
 }
 
 impl ExactRunRecord {
-    /// Constructs a run record whose fingerprints identify the common paired experiment.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    /// Seals the terminal observation and complete law evidence of an executed exact run.
+    pub fn from_trophic_network(
         run_id: impl Into<String>,
-        topology: impl Into<String>,
-        parameters: impl Into<String>,
-        observation_rule: impl Into<String>,
-        paired_schedule: impl Into<String>,
-        horizon: usize,
-        elapsed: BigRational,
-        terminal: BTreeMap<String, BigRational>,
+        network: &ExactTrophicNetwork,
     ) -> Result<Self, ExactPairError> {
         let run_id = nonblank("run id", run_id.into())?;
-        let topology = nonblank("topology fingerprint", topology.into())?;
-        let parameters = nonblank("parameter fingerprint", parameters.into())?;
-        let observation_rule = nonblank("observation rule", observation_rule.into())?;
-        let paired_schedule = nonblank("paired schedule", paired_schedule.into())?;
-        if horizon == 0 {
+        if network.transitions().is_empty() {
             return Err(ExactPairError::ZeroHorizon);
         }
-        if elapsed <= BigRational::zero() {
-            return Err(ExactPairError::NonpositiveElapsed(elapsed));
+        let law_evidence = network
+            .law_evidence()
+            .map_err(|error| ExactPairError::Audit(error.to_string()))?;
+        if !law_evidence.is_satisfied() {
+            return Err(ExactPairError::UnsatisfiedAudit);
         }
-        if terminal.is_empty() {
-            return Err(ExactPairError::EmptyTerminalState);
-        }
-        for axis in terminal.keys() {
-            if axis.trim().is_empty() {
-                return Err(ExactPairError::Blank("terminal axis"));
-            }
-        }
+        let transitions = network.transitions().to_vec();
+        let schedule = transitions
+            .iter()
+            .map(|transition| ExactScheduleStep {
+                elapsed: transition.elapsed().clone(),
+                requested_boundaries: transition
+                    .record()
+                    .requested_boundary()
+                    .iter()
+                    .map(|(boundary, _, amount)| (boundary.clone(), amount.clone()))
+                    .collect(),
+            })
+            .collect();
+        let terminal = network
+            .stock_names()
+            .iter()
+            .zip(network.amounts())
+            .map(|(axis, amount)| (axis.clone(), amount.clone()))
+            .collect();
         Ok(Self {
             run_id,
-            topology,
-            parameters,
-            observation_rule,
-            paired_schedule,
-            horizon,
-            elapsed,
+            audit: AuditedExactRun {
+                plan: network.plan_identity(),
+                schedule,
+                transitions,
+                law_evidence,
+            },
             terminal,
         })
     }
@@ -79,6 +96,16 @@ impl ExactRunRecord {
         self.terminal.keys().map(String::as_str)
     }
 
+    /// Accepted transitions whose checked trace produced this record.
+    pub fn transitions(&self) -> &[ExactTrophicTransition] {
+        &self.audit.transitions
+    }
+
+    /// Complete positive law evidence sealed with this record.
+    pub fn law_evidence(&self) -> &ExactTrophicLawSuiteEvidence {
+        &self.audit.law_evidence
+    }
+
     fn renamed(&self, axes: &BTreeMap<String, String>) -> Result<Self, ExactPairError> {
         validate_renaming(self.terminal.keys(), axes)?;
         let terminal = self
@@ -86,16 +113,11 @@ impl ExactRunRecord {
             .iter()
             .map(|(axis, value)| (axes[axis].clone(), value.clone()))
             .collect();
-        Self::new(
-            self.run_id.clone(),
-            self.topology.clone(),
-            self.parameters.clone(),
-            self.observation_rule.clone(),
-            self.paired_schedule.clone(),
-            self.horizon,
-            self.elapsed.clone(),
+        Ok(Self {
+            run_id: self.run_id.clone(),
+            audit: self.audit.clone(),
             terminal,
-        )
+        })
     }
 }
 
@@ -107,7 +129,7 @@ pub struct ExactPairedModel {
 }
 
 impl ExactPairedModel {
-    /// Validates common topology, parameters, observations, schedule, and horizon.
+    /// Validates a common compiled plan, exact observation-time grid, and terminal axes.
     pub fn new(
         baseline: ExactRunRecord,
         perturbed: ExactRunRecord,
@@ -115,24 +137,20 @@ impl ExactPairedModel {
         if baseline.run_id == perturbed.run_id {
             return Err(ExactPairError::DuplicateRunId(baseline.run_id));
         }
-        ensure_equal("topology", &baseline.topology, &perturbed.topology)?;
-        ensure_equal("parameters", &baseline.parameters, &perturbed.parameters)?;
-        ensure_equal(
-            "observation rule",
-            &baseline.observation_rule,
-            &perturbed.observation_rule,
-        )?;
-        ensure_equal(
-            "paired schedule",
-            &baseline.paired_schedule,
-            &perturbed.paired_schedule,
-        )?;
-        if baseline.horizon != perturbed.horizon {
-            return Err(ExactPairError::Mismatch("horizon"));
-        }
-        if baseline.elapsed != perturbed.elapsed {
-            return Err(ExactPairError::Mismatch("elapsed"));
-        }
+        ensure_equal("compiled plan", &baseline.audit.plan, &perturbed.audit.plan)?;
+        let baseline_grid = baseline
+            .audit
+            .schedule
+            .iter()
+            .map(|step| &step.elapsed)
+            .collect::<Vec<_>>();
+        let perturbed_grid = perturbed
+            .audit
+            .schedule
+            .iter()
+            .map(|step| &step.elapsed)
+            .collect::<Vec<_>>();
+        ensure_equal("observation time grid", &baseline_grid, &perturbed_grid)?;
         if baseline.terminal.keys().ne(perturbed.terminal.keys()) {
             return Err(ExactPairError::Mismatch("terminal axes"));
         }
@@ -360,10 +378,10 @@ pub enum ExactPairError {
     Blank(&'static str),
     /// A run has no accepted transition.
     ZeroHorizon,
-    /// Step duration is zero or negative.
-    NonpositiveElapsed(BigRational),
-    /// A terminal observation is missing every axis.
-    EmptyTerminalState,
+    /// The exact run could not produce its complete law evidence.
+    Audit(String),
+    /// At least one member of the complete exact law suite was false.
+    UnsatisfiedAudit,
     /// Both arms use one run identity.
     DuplicateRunId(String),
     /// Paired metadata differs.
@@ -383,10 +401,10 @@ impl fmt::Display for ExactPairError {
         match self {
             Self::Blank(field) => write!(formatter, "{field} must be nonblank"),
             Self::ZeroHorizon => formatter.write_str("paired runs require at least one transition"),
-            Self::NonpositiveElapsed(value) => {
-                write!(formatter, "elapsed time must be positive, got {value}")
+            Self::Audit(message) => write!(formatter, "exact run audit failed: {message}"),
+            Self::UnsatisfiedAudit => {
+                formatter.write_str("exact run does not satisfy its complete law suite")
             }
-            Self::EmptyTerminalState => formatter.write_str("terminal state must be nonempty"),
             Self::DuplicateRunId(id) => write!(formatter, "paired run id occurs twice: {id}"),
             Self::Mismatch(field) => write!(formatter, "paired runs disagree on {field}"),
             Self::UnknownAxis(axis) => write!(formatter, "unknown paired stock axis: {axis}"),

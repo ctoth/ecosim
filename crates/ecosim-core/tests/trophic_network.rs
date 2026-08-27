@@ -1,12 +1,20 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use conservation_core::{AxisId, Grade};
+use conservation_stock_flow::{
+    BoundaryCorrespondence, BoundaryVerdict, ExactAmounts, FlowConstraintVerdict, FlowId, LedgerId,
+    LinearFlowConstraint, SentenceId, TransitionEquation, TransitionRecord, TransitionTrace,
+    TransitionVerdict, check_boundary_correspondence, check_linear_flow_constraint,
+    check_transition_equation,
+};
 use conservation_trace::{LawVerdict, LawWitness};
 use ecosim_core::{
     ConsumerSpec, DenseTrophicNetwork, DenseTrophicNetworkPlan, ExactTrophicNetwork,
     ExactTrophicNetworkPlan, FeedingSpec, ProducerSpec, TROPHIC_DENSE_BALANCE_ABSOLUTE_TOLERANCE,
-    TROPHIC_DENSE_BALANCE_RELATIVE_TOLERANCE, TrophicLaw, TrophicLawEvidence, TrophicNetworkError,
-    TrophicNetworkSpec, trophic_dense_balance_tolerance,
+    TROPHIC_DENSE_BALANCE_RELATIVE_TOLERANCE, TrophicBoundary, TrophicFlow, TrophicLaw,
+    TrophicLawEvidence, TrophicLawVerdict, TrophicNetworkError, TrophicNetworkSpec,
+    TrophicSentenceFamily, trophic_dense_balance_tolerance,
 };
 use num_rational::BigRational;
 use num_traits::{Signed, ToPrimitive};
@@ -158,6 +166,34 @@ fn exact_plan_compiles_stable_axes_and_graded_sentences() {
         ]
     );
     assert_eq!(
+        plan.flow_symbols(),
+        [
+            TrophicFlow::NutrientInput,
+            TrophicFlow::ProducerGrowth("grazed".to_owned()),
+            TrophicFlow::ProducerGrowth("refuge".to_owned()),
+            TrophicFlow::FeedingAssimilation {
+                consumer: "grazer".to_owned(),
+                resource: "grazed".to_owned(),
+            },
+            TrophicFlow::FeedingWaste {
+                consumer: "grazer".to_owned(),
+                resource: "grazed".to_owned(),
+            },
+            TrophicFlow::Mortality("grazed".to_owned()),
+            TrophicFlow::Mortality("refuge".to_owned()),
+            TrophicFlow::Mortality("grazer".to_owned()),
+            TrophicFlow::Decomposition,
+            TrophicFlow::Harvest("grazer".to_owned()),
+        ]
+    );
+    assert_eq!(
+        plan.boundary_symbols(),
+        [
+            TrophicBoundary::NutrientInput,
+            TrophicBoundary::Harvest("grazer".to_owned()),
+        ]
+    );
+    assert_eq!(
         plan.evidence_laws().cloned().collect::<Vec<_>>(),
         vec![
             TrophicLaw::MaterialInvariant,
@@ -177,6 +213,7 @@ fn exact_trace_records_committed_settled_state_and_typed_witnesses() {
     let plan = ExactTrophicNetworkPlan::compile(exact_spec(ratio(4, 5))).unwrap();
     let mut network = plan.start(exact_initial()).unwrap();
     assert_eq!(network.trace().len(), 1);
+    assert!(network.transitions().is_empty());
     assert!(network.evidence().is_err());
 
     network
@@ -188,6 +225,26 @@ fn exact_trace_records_committed_settled_state_and_typed_witnesses() {
         .unwrap();
 
     assert_eq!(network.trace().len(), 2);
+    assert_eq!(network.transitions().len(), 1);
+    let transition = &network.transitions()[0];
+    assert_eq!(transition.index(), 0);
+    assert_eq!(transition.time_before(), &ratio(0, 1));
+    assert_eq!(transition.time_after(), &ratio(1, 4));
+    assert_eq!(
+        transition.stocks_before(),
+        [
+            ratio(100, 1),
+            ratio(10, 1),
+            ratio(10, 1),
+            ratio(5, 1),
+            ratio(0, 1),
+        ]
+    );
+    assert_eq!(transition.stocks_after(), network.amounts());
+    assert_eq!(transition.inputs_before(), &ratio(0, 1));
+    assert_eq!(transition.inputs_after(), &ratio(2, 1));
+    assert_eq!(transition.outputs_before(), &ratio(0, 1));
+    assert_eq!(transition.outputs_after(), &ratio(1, 2));
     let final_state = network.trace().last().unwrap();
     for name in network.stock_names() {
         assert_eq!(
@@ -237,6 +294,231 @@ fn exact_trace_records_committed_settled_state_and_typed_witnesses() {
 }
 
 #[test]
+fn complete_exact_law_suite_has_stable_typed_process_and_boundary_evidence() {
+    let plan = ExactTrophicNetworkPlan::compile(exact_spec(ratio(4, 5))).unwrap();
+    let mut network = plan.start(exact_initial()).unwrap();
+    network
+        .step(
+            ratio(1, 4),
+            ratio(2, 1),
+            BTreeMap::from([("grazer".to_owned(), ratio(1, 2))]),
+        )
+        .unwrap();
+
+    let evidence = network.law_evidence().unwrap();
+    assert!(evidence.is_satisfied());
+    assert_eq!(
+        evidence
+            .laws()
+            .iter()
+            .map(|item| item.law().clone())
+            .collect::<Vec<_>>(),
+        vec![
+            TrophicLaw::TransitionEquation,
+            TrophicLaw::FeedingPartition {
+                consumer: "grazer".to_owned(),
+                resource: "grazed".to_owned(),
+            },
+            TrophicLaw::NutrientInputCorrespondence,
+            TrophicLaw::HarvestCorrespondence("grazer".to_owned()),
+            TrophicLaw::MaterialInvariant,
+            TrophicLaw::StockNonnegative("detritus".to_owned()),
+            TrophicLaw::StockNonnegative("grazed".to_owned()),
+            TrophicLaw::StockNonnegative("grazer".to_owned()),
+            TrophicLaw::StockNonnegative("nutrient".to_owned()),
+            TrophicLaw::StockNonnegative("refuge".to_owned()),
+            TrophicLaw::CumulativeInputNondecreasing,
+            TrophicLaw::CumulativeOutputNondecreasing,
+            TrophicLaw::OpenMaterialBalance,
+        ]
+    );
+    assert!(matches!(
+        evidence.laws()[0].verdict(),
+        TrophicLawVerdict::Transition(verdict) if verdict.is_satisfied()
+    ));
+    assert_eq!(
+        evidence.laws()[1].family(),
+        TrophicSentenceFamily::FlowConstraint
+    );
+    assert_eq!(evidence.laws()[1].grade(), None);
+    assert!(matches!(
+        evidence.laws().last().unwrap().verdict(),
+        TrophicLawVerdict::OpenBalance(verdict) if verdict.is_satisfied()
+    ));
+}
+
+#[test]
+fn balanced_but_misrouted_state_change_fails_the_transition_equation() {
+    let plan = ExactTrophicNetworkPlan::compile(exact_spec(ratio(4, 5))).unwrap();
+    let mut network = plan.start(exact_initial()).unwrap();
+    network
+        .step(ratio(1, 4), ratio(0, 1), BTreeMap::new())
+        .unwrap();
+    let mut data = network.transitions()[0].record().clone().into_data();
+    data.after = ExactAmounts::new(data.after.iter().map(|(axis, kind, amount)| {
+        let corrupted = match axis.as_str() {
+            "grazed" => amount + ratio(1, 1),
+            "refuge" => amount - ratio(1, 1),
+            _ => amount.clone(),
+        };
+        (axis.clone(), kind.clone(), corrupted)
+    }))
+    .unwrap();
+    let record = TransitionRecord::new(plan.stock_flow_carrier(), data).unwrap();
+    let trace =
+        TransitionTrace::new(Arc::new(plan.stock_flow_carrier().clone()), vec![record]).unwrap();
+
+    let verdict = check_transition_equation(
+        &TransitionEquation::new(SentenceId::new("misrouting-counterexample").unwrap()),
+        &trace,
+    )
+    .unwrap();
+    assert!(matches!(verdict, TransitionVerdict::Violated(_)));
+}
+
+#[test]
+fn balanced_feeding_with_the_wrong_partition_fails_its_process_constraint() {
+    let plan = ExactTrophicNetworkPlan::compile(exact_spec(ratio(4, 5))).unwrap();
+    let mut network = plan.start(exact_initial()).unwrap();
+    network
+        .step(ratio(1, 4), ratio(0, 1), BTreeMap::new())
+        .unwrap();
+    let assimilation = FlowId::new("feeding-assimilated:grazer:grazed").unwrap();
+    let waste = FlowId::new("feeding-waste:grazer:grazed").unwrap();
+    let mut data = network.transitions()[0].record().clone().into_data();
+    data.settled_internal =
+        ExactAmounts::new(data.settled_internal.iter().map(|(flow, kind, amount)| {
+            let corrupted = if flow == &assimilation {
+                ratio(0, 1)
+            } else {
+                amount.clone()
+            };
+            (flow.clone(), kind.clone(), corrupted)
+        }))
+        .unwrap();
+    let record = TransitionRecord::new(plan.stock_flow_carrier(), data).unwrap();
+    let trace =
+        TransitionTrace::new(Arc::new(plan.stock_flow_carrier().clone()), vec![record]).unwrap();
+    let sentence = LinearFlowConstraint::new(
+        plan.stock_flow_carrier(),
+        SentenceId::new("feeding-counterexample").unwrap(),
+        conservation_core::KindId::new("material-equivalent").unwrap(),
+        [(assimilation, ratio(1, 4)), (waste, ratio(-3, 4))],
+        ratio(0, 1),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        check_linear_flow_constraint(&sentence, &trace).unwrap(),
+        FlowConstraintVerdict::Violated(_)
+    ));
+}
+
+#[test]
+fn unchanged_input_ledger_with_settled_input_fails_boundary_correspondence() {
+    let plan = ExactTrophicNetworkPlan::compile(exact_spec(ratio(4, 5))).unwrap();
+    let mut network = plan.start(exact_initial()).unwrap();
+    network
+        .step(ratio(1, 4), ratio(2, 1), BTreeMap::new())
+        .unwrap();
+    let input_ledger = LedgerId::new("cumulative_input").unwrap();
+    let mut data = network.transitions()[0].record().clone().into_data();
+    let before = data.ledger_before.amount(&input_ledger).unwrap().clone();
+    data.ledger_after =
+        ExactAmounts::new(data.ledger_after.iter().map(|(ledger, kind, amount)| {
+            let corrupted = if ledger == &input_ledger {
+                before.clone()
+            } else {
+                amount.clone()
+            };
+            (ledger.clone(), kind.clone(), corrupted)
+        }))
+        .unwrap();
+    let record = TransitionRecord::new(plan.stock_flow_carrier(), data).unwrap();
+    let trace =
+        TransitionTrace::new(Arc::new(plan.stock_flow_carrier().clone()), vec![record]).unwrap();
+    let sentence = BoundaryCorrespondence::new(
+        SentenceId::new("input-ledger-counterexample").unwrap(),
+        input_ledger,
+    );
+
+    assert!(matches!(
+        check_boundary_correspondence(&sentence, &trace).unwrap(),
+        BoundaryVerdict::Violated(_)
+    ));
+}
+
+#[test]
+fn swapping_two_harvest_ledger_attributions_fails_both_port_correspondences() {
+    let spec = TrophicNetworkSpec::new(
+        vec![ProducerSpec::new(
+            "plant",
+            ratio(0, 1),
+            ratio(1, 1),
+            ratio(0, 1),
+        )],
+        vec![
+            ConsumerSpec::new("grazer", ratio(0, 1)),
+            ConsumerSpec::new("hunter", ratio(0, 1)),
+        ],
+        vec![],
+        ratio(0, 1),
+    );
+    let plan = ExactTrophicNetworkPlan::compile(spec).unwrap();
+    let mut network = plan
+        .start(BTreeMap::from([
+            ("nutrient".to_owned(), ratio(0, 1)),
+            ("plant".to_owned(), ratio(0, 1)),
+            ("grazer".to_owned(), ratio(1, 1)),
+            ("hunter".to_owned(), ratio(2, 1)),
+            ("detritus".to_owned(), ratio(0, 1)),
+        ]))
+        .unwrap();
+    network
+        .step(
+            ratio(1, 1),
+            ratio(0, 1),
+            BTreeMap::from([
+                ("grazer".to_owned(), ratio(3, 1)),
+                ("hunter".to_owned(), ratio(3, 1)),
+            ]),
+        )
+        .unwrap();
+
+    let grazer = LedgerId::new("cumulative_harvest:grazer").unwrap();
+    let hunter = LedgerId::new("cumulative_harvest:hunter").unwrap();
+    let mut data = network.transitions()[0].record().clone().into_data();
+    let grazer_after = data.ledger_after.amount(&grazer).unwrap().clone();
+    let hunter_after = data.ledger_after.amount(&hunter).unwrap().clone();
+    data.ledger_after =
+        ExactAmounts::new(data.ledger_after.iter().map(|(ledger, kind, amount)| {
+            let misattributed = if ledger == &grazer {
+                hunter_after.clone()
+            } else if ledger == &hunter {
+                grazer_after.clone()
+            } else {
+                amount.clone()
+            };
+            (ledger.clone(), kind.clone(), misattributed)
+        }))
+        .unwrap();
+    let record = TransitionRecord::new(plan.stock_flow_carrier(), data).unwrap();
+    let trace =
+        TransitionTrace::new(Arc::new(plan.stock_flow_carrier().clone()), vec![record]).unwrap();
+
+    for (name, ledger) in [("grazer", grazer), ("hunter", hunter)] {
+        let sentence = BoundaryCorrespondence::new(
+            SentenceId::new(format!("wrong-harvest-port:{name}")).unwrap(),
+            ledger,
+        );
+        assert!(matches!(
+            check_boundary_correspondence(&sentence, &trace).unwrap(),
+            BoundaryVerdict::Violated(_)
+        ));
+    }
+}
+
+#[test]
 fn rejected_exact_step_leaves_trace_and_all_observables_unchanged() {
     let plan = ExactTrophicNetworkPlan::compile(exact_spec(ratio(4, 5))).unwrap();
     let mut network = plan.start(exact_initial()).unwrap();
@@ -249,6 +531,7 @@ fn rejected_exact_step_leaves_trace_and_all_observables_unchanged() {
         network.inputs(),
         network.outputs(),
         network.trace().to_vec(),
+        network.transitions().to_vec(),
     );
 
     assert_eq!(
@@ -264,6 +547,7 @@ fn rejected_exact_step_leaves_trace_and_all_observables_unchanged() {
             network.inputs(),
             network.outputs(),
             network.trace().to_vec(),
+            network.transitions().to_vec(),
         ),
         before
     );
@@ -293,6 +577,11 @@ fn source_limited_harvest_trace_records_settled_output() {
         .unwrap();
 
     assert_eq!(step.harvest("grazer"), Some(&ratio(1, 1)));
+    let transition = step.transition();
+    let harvest = TrophicFlow::Harvest("grazer".to_owned());
+    assert_eq!(transition.proposed(&harvest), Some(&ratio(100, 1)));
+    assert_eq!(transition.settled(&harvest), Some(&ratio(1, 1)));
+    assert_eq!(transition, &network.transitions()[0]);
     assert_eq!(network.outputs(), ratio(1, 1));
     assert_eq!(
         network
@@ -396,6 +685,10 @@ fn competing_producers_share_a_scarce_nutrient_without_order_effects() {
         .map(|law| (law.law().clone(), law.verdict().clone()))
         .collect::<BTreeMap<_, _>>();
     assert_eq!(forward_evidence, reversed_evidence);
+    assert_eq!(
+        forward.law_evidence().unwrap(),
+        reversed.law_evidence().unwrap()
+    );
 }
 
 #[test]
@@ -612,9 +905,12 @@ proptest! {
         }
 
         let evidence = network.evidence().unwrap();
+        let law_evidence = network.law_evidence().unwrap();
         prop_assert_eq!(network.trace().len(), successful_steps + 1);
+        prop_assert_eq!(network.transitions().len(), successful_steps);
         prop_assert!(evidence.is_satisfied());
         prop_assert!(evidence.laws().iter().all(TrophicLawEvidence::is_satisfied));
+        prop_assert!(law_evidence.is_satisfied());
     }
 
     #[test]
@@ -640,6 +936,7 @@ proptest! {
             network.inputs(),
             network.outputs(),
             network.trace().to_vec(),
+            network.transitions().to_vec(),
         );
 
         prop_assert!(matches!(
@@ -657,6 +954,7 @@ proptest! {
                 network.inputs(),
                 network.outputs(),
                 network.trace().to_vec(),
+                network.transitions().to_vec(),
             ),
             before,
         );

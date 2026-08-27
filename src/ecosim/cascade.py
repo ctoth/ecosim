@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from fractions import Fraction
 from importlib import resources
 from types import MappingProxyType
 from typing import Any, Literal, cast
@@ -74,15 +75,14 @@ class ExactSignObservation:
 
     comparison: str
     stock: str
-    observed: float
+    observed: Fraction
     sign: Sign
-    epsilon: float
+    epsilon: Fraction
+    institutional_satisfied: bool
 
     @property
     def passed(self) -> bool:
-        if self.sign == "positive":
-            return self.observed > self.epsilon
-        return self.observed < -self.epsilon
+        return self.institutional_satisfied
 
 
 @dataclass(frozen=True)
@@ -303,13 +303,33 @@ def _response_for(result: CascadeExperimentResult, comparison: str) -> TrophicRe
     raise ValueError(f"unknown cascade comparison: {comparison}")
 
 
-def _exact_response_for(
-    comparisons: dict[str, ExactTrophicComparison], comparison: str
-) -> TrophicResponse:
+def _exact_sign_observation(
+    comparisons: dict[str, ExactTrophicComparison],
+    claim: ExactSignClaim,
+    epsilon: Fraction,
+) -> ExactSignObservation:
     try:
-        return comparisons[comparison].response
+        pair = comparisons[claim.comparison]
     except KeyError as error:
-        raise ValueError(f"unknown exact cascade comparison: {comparison}") from error
+        raise ValueError(
+            f"unknown exact cascade comparison: {claim.comparison}"
+        ) from error
+    relation = "greater_than" if claim.sign == "positive" else "less_than"
+    threshold = epsilon if claim.sign == "positive" else -epsilon
+    evidence = pair.evaluate_terminal_sentence(
+        f"{claim.comparison}:{claim.stock}:{claim.sign}",
+        claim.stock,
+        relation,
+        threshold,
+    )
+    return ExactSignObservation(
+        claim.comparison,
+        claim.stock,
+        evidence.delta,
+        claim.sign,
+        epsilon,
+        evidence.satisfied,
+    )
 
 
 def run_frozen_cascade(
@@ -394,17 +414,9 @@ def run_frozen_cascade(
         )
         for claim in scenario.claims
     )
+    epsilon = Fraction.from_float(scenario.response_sign_epsilon)
     exact_sign_observations = tuple(
-        ExactSignObservation(
-            claim.comparison,
-            claim.stock,
-            float(
-                _exact_response_for(exact_comparisons, claim.comparison)
-                .terminal_delta(claim.stock)[0]
-            ),
-            claim.sign,
-            scenario.response_sign_epsilon,
-        )
+        _exact_sign_observation(exact_comparisons, claim, epsilon)
         for claim in scenario.exact_sign_claims
     )
     return CascadeExperimentResult(

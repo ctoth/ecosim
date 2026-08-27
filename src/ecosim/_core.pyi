@@ -160,6 +160,8 @@ class NativeTrophicNetworkPlan:
     def evidence_axis_names(self) -> list[str]: ...
     @property
     def evidence_laws(self) -> list[tuple[str, str | None, str]]: ...
+    @property
+    def law_suite_laws(self) -> list[tuple[str, str | None, str]]: ...
     def start(self, initial: dict[str, float]) -> NativeTrophicNetwork: ...
 
 class NativeTrophicNetwork:
@@ -176,6 +178,7 @@ class NativeTrophicNetwork:
     @property
     def stock_names(self) -> list[str]: ...
     def stock(self, name: str) -> float: ...
+    def exact_stocks(self) -> list[tuple[str, int, int]]: ...
     @property
     def inputs(self) -> float: ...
     @property
@@ -187,6 +190,30 @@ class NativeTrophicNetwork:
     @property
     def trace_length(self) -> int: ...
     def evidence(self) -> list[tuple[str, str | None, str, bool]]: ...
+    def law_evidence(self) -> list[tuple[str, str | None, str, bool]]: ...
+    def paired_terminal_sentence(
+        self,
+        perturbed: NativeTrophicNetwork,
+        baseline_id: str,
+        perturbed_id: str,
+        sentence_name: str,
+        axis: str,
+        relation: str,
+        threshold_numerator: int,
+        threshold_denominator: int,
+    ) -> tuple[bool, int, int]: ...
+    @property
+    def transition_count(self) -> int: ...
+    def transitions(
+        self,
+    ) -> list[
+        tuple[
+            int,
+            tuple[int, int],
+            tuple[int, int],
+            list[tuple[str, int, int, int, int]],
+        ]
+    ]: ...
     def step(
         self,
         elapsed: float,

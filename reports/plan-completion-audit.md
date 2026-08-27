@@ -39,8 +39,8 @@ The implementation is not publish-complete. Current public and local heads are:
 | Repository | Public `master` | Local `master` |
 |---|---|---|
 | conservation | `dd21f6b1fee852b62328dac8aaf7138e45551272` | `35dc31b1e228b96d213a6a9229c8c02b7d867413` |
-| institution | `16109396f9cc68c705a941b9b039758486597389` | `c7eff723095dbc4064d8c078c0442837aa932073` |
-| ecosim | `d752107310d40120b063ecd91c4f938bb3622492` | local head containing this audit |
+| institution | `16109396f9cc68c705a941b9b039758486597389` | `facdd0b` or a reviewed descendant |
+| ecosim | `d752107310d40120b063ecd91c4f938bb3622492` | `HEAD` containing this audit or a reviewed descendant |
 
 Consequently, institution and ecosim still use temporary sibling paths for the
 new crates during local integration. Completion requires this order:

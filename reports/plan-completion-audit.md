@@ -32,25 +32,23 @@ three sibling repositories on 2026-08-27.
 - The economics handoff names the next concrete client without extracting an
   unproved shared experiment or kinetic layer.
 
-## Remaining publication and clean-source gate
+## Remote revision and clean-source result
 
-The implementation is not publish-complete. Current public and local heads are:
+The dependency chain uses these immutable published revisions:
 
-| Repository | Public `master` | Local `master` |
-|---|---|---|
-| conservation | `dd21f6b1fee852b62328dac8aaf7138e45551272` | `50f0364473053e8d9f381d53884dcc72cbb2862c` |
-| institution | `16109396f9cc68c705a941b9b039758486597389` | `facdd0b5d89eef347f7cd82a0605f015aa394905` |
-| ecosim | `d752107310d40120b063ecd91c4f938bb3622492` | `HEAD` containing this audit or a reviewed descendant |
+| Repository | Published dependency revision |
+|---|---|
+| conservation | `50f0364473053e8d9f381d53884dcc72cbb2862c` |
+| institution | `a75660f5ab711356fbec1ae1c15deb806be2c048` |
 
-Consequently, institution and ecosim still use temporary sibling paths for the
-new crates during local integration. Completion requires this order:
+Institution resolves every conservation crate from the conservation revision.
+Ecosim resolves every conservation and institution crate from the two recorded
+Git revisions. No manifest or workspace patch refers to a sibling conservation
+or institution checkout; the remaining path from `ecosim-python` to
+`ecosim-core` is an internal workspace dependency.
 
-1. review and publish conservation;
-2. replace institution's conservation paths with the exact published revision,
-   verify from a clean source tree, commit, and publish institution;
-3. replace ecosim's sibling paths and patches with both exact published
-   revisions, verify the sdist/wheel from a clean source tree, commit, and
-   publish ecosim;
-4. confirm all three public heads equal the locally verified commits.
-
-Publication is intentionally not inferred from local implementation authority.
+Fresh isolated checkouts were used for the final workspace format, test, and
+clippy gates. Ecosim's isolated source additionally passed Python tests,
+Pyright, and `uv build`; the latter reconstructed both the source distribution
+and wheel from the source distribution. Publication remains subject to the
+separate read-before-publish guard and exact remote-head confirmation.

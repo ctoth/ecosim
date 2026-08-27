@@ -48,6 +48,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 [[package]]
 name = "conservation-core"
 version = "0.1.0"
+source = "git+https://github.com/ctoth/conservation.git?rev=50f0364473053e8d9f381d53884dcc72cbb2862c#50f0364473053e8d9f381d53884dcc72cbb2862c"
 dependencies = [
  "num-rational",
  "num-traits",
@@ -56,6 +57,7 @@ dependencies = [
 [[package]]
 name = "conservation-dynamics"
 version = "0.1.0"
+source = "git+https://github.com/ctoth/conservation.git?rev=50f0364473053e8d9f381d53884dcc72cbb2862c#50f0364473053e8d9f381d53884dcc72cbb2862c"
 dependencies = [
  "conservation-core",
  "num-rational",
@@ -65,6 +67,7 @@ dependencies = [
 [[package]]
 name = "conservation-linear"
 version = "0.1.0"
+source = "git+https://github.com/ctoth/conservation.git?rev=50f0364473053e8d9f381d53884dcc72cbb2862c#50f0364473053e8d9f381d53884dcc72cbb2862c"
 dependencies = [
  "conservation-core",
  "num-bigint",
@@ -76,6 +79,7 @@ dependencies = [
 [[package]]
 name = "conservation-stock-flow"
 version = "0.1.0"
+source = "git+https://github.com/ctoth/conservation.git?rev=50f0364473053e8d9f381d53884dcc72cbb2862c#50f0364473053e8d9f381d53884dcc72cbb2862c"
 dependencies = [
  "conservation-core",
  "conservation-dynamics",
@@ -88,6 +92,7 @@ dependencies = [
 [[package]]
 name = "conservation-trace"
 version = "0.1.0"
+source = "git+https://github.com/ctoth/conservation.git?rev=50f0364473053e8d9f381d53884dcc72cbb2862c#50f0364473053e8d9f381d53884dcc72cbb2862c"
 dependencies = [
  "conservation-core",
  "num-rational",
@@ -193,14 +198,15 @@ dependencies = [
 [[package]]
 name = "institution"
 version = "0.1.0"
-source = "git+https://github.com/ctoth/institution.git?rev=16109396f9cc68c705a941b9b039758486597389#16109396f9cc68c705a941b9b039758486597389"
+source = "git+https://github.com/ctoth/institution.git?rev=a75660f5ab711356fbec1ae1c15deb806be2c048#a75660f5ab711356fbec1ae1c15deb806be2c048"
 
 [[package]]
 name = "institution-conservation"
 version = "0.1.0"
-source = "git+https://github.com/ctoth/institution.git?rev=16109396f9cc68c705a941b9b039758486597389#16109396f9cc68c705a941b9b039758486597389"
+source = "git+https://github.com/ctoth/institution.git?rev=a75660f5ab711356fbec1ae1c15deb806be2c048#a75660f5ab711356fbec1ae1c15deb806be2c048"
 dependencies = [
  "conservation-core",
+ "conservation-stock-flow",
  "conservation-trace",
  "institution",
 ]

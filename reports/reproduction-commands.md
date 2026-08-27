@@ -1,7 +1,8 @@
 # Reproduction Commands
 
-Run from the three sibling repositories after replacing temporary local path
-overrides with the recorded git revisions.
+Run from the three repositories. Institution and ecosim manifests already use
+the immutable Git revisions recorded in the completion audit; no sibling
+conservation or institution checkout participates in these commands.
 
 ## Conservation
 

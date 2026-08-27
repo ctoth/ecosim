@@ -16,9 +16,3 @@ num-traits = "0.2"
 pyo3 = "0.27"
 numpy = "0.27"
 libm = "0.2"
-
-[patch."https://github.com/ctoth/conservation.git"]
-conservation-core = { path = "../conservation/conservation-core" }
-conservation-dynamics = { path = "../conservation/conservation-dynamics" }
-conservation-linear = { path = "../conservation/conservation-linear" }
-conservation-trace = { path = "../conservation/conservation-trace" }

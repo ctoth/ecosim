@@ -21,6 +21,7 @@ pub use multikind_fixture::{SyntheticMultikindFixture, synthetic_multikind_fixtu
 pub use paired::{
     ComparisonRelation, ExactPairError, ExactPairedModel, ExactRunRecord, PairedComparisonSentence,
     PairedComparisonVerdict, PairedComparisonViolation, PairedComparisonWitness, PairedEvidence,
+    PairedResponseMetric,
 };
 pub use trophic_network::{
     CompleteTrophicLawEvidence, ConsumerSpec, DenseTrophicNetwork, DenseTrophicNetworkPlan,

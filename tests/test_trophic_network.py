@@ -77,6 +77,9 @@ def test_exact_and_dense_python_networks_share_named_process_semantics() -> None
     )
     assert exact.balanced
     assert dense.balanced
+    assert not hasattr(dense, "evidence")
+    assert not hasattr(dense, "law_evidence")
+    assert not hasattr(dense, "paired_terminal_sentence")
 
 
 def test_compiled_plans_start_independent_runs() -> None:

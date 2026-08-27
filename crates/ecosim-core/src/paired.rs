@@ -209,11 +209,27 @@ pub enum ComparisonRelation {
     LessThan,
 }
 
+/// Exact observation rule evaluated by a paired comparison sentence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PairedResponseMetric {
+    /// Difference between perturbed and baseline terminal values for one stock.
+    TerminalStock(String),
+}
+
+impl PairedResponseMetric {
+    /// Stock axis observed by this first metric family.
+    pub fn axis(&self) -> &str {
+        match self {
+            Self::TerminalStock(axis) => axis,
+        }
+    }
+}
+
 /// One named terminal-response sentence.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PairedComparisonSentence {
     name: String,
-    axis: String,
+    metric: PairedResponseMetric,
     relation: ComparisonRelation,
     threshold: BigRational,
 }
@@ -228,7 +244,7 @@ impl PairedComparisonSentence {
     ) -> Result<Self, ExactPairError> {
         Ok(Self {
             name: nonblank("sentence name", name.into())?,
-            axis: nonblank("sentence axis", axis.into())?,
+            metric: PairedResponseMetric::TerminalStock(nonblank("sentence axis", axis.into())?),
             relation,
             threshold,
         })
@@ -241,14 +257,19 @@ impl PairedComparisonSentence {
 
     /// Stock axis compared at the terminal observation.
     pub fn axis(&self) -> &str {
-        &self.axis
+        self.metric.axis()
+    }
+
+    /// Exact response metric evaluated by this sentence.
+    pub fn metric(&self) -> &PairedResponseMetric {
+        &self.metric
     }
 
     /// Applies the same conservative axis renaming used for a paired model.
     pub fn rename(&self, axes: &BTreeMap<String, String>) -> Result<Self, ExactPairError> {
         let renamed = axes
-            .get(&self.axis)
-            .ok_or_else(|| ExactPairError::UnknownAxis(self.axis.clone()))?;
+            .get(self.axis())
+            .ok_or_else(|| ExactPairError::UnknownAxis(self.axis().to_owned()))?;
         Self::new(
             self.name.clone(),
             renamed.clone(),
@@ -264,12 +285,12 @@ impl PairedComparisonSentence {
     ) -> Result<PairedComparisonVerdict, ExactPairError> {
         let baseline = model
             .baseline
-            .terminal(&self.axis)
-            .ok_or_else(|| ExactPairError::UnknownAxis(self.axis.clone()))?;
+            .terminal(self.axis())
+            .ok_or_else(|| ExactPairError::UnknownAxis(self.axis().to_owned()))?;
         let perturbed = model
             .perturbed
-            .terminal(&self.axis)
-            .ok_or_else(|| ExactPairError::UnknownAxis(self.axis.clone()))?;
+            .terminal(self.axis())
+            .ok_or_else(|| ExactPairError::UnknownAxis(self.axis().to_owned()))?;
         let delta = perturbed - baseline;
         let satisfied = match self.relation {
             ComparisonRelation::GreaterThan => delta > self.threshold,
@@ -281,7 +302,7 @@ impl PairedComparisonSentence {
                     sentence: self.name.clone(),
                     baseline_run: model.baseline.run_id.clone(),
                     perturbed_run: model.perturbed.run_id.clone(),
-                    axis: self.axis.clone(),
+                    metric: self.metric.clone(),
                     delta,
                     relation: self.relation,
                     threshold: self.threshold.clone(),
@@ -293,7 +314,7 @@ impl PairedComparisonSentence {
                     sentence: self.name.clone(),
                     baseline_run: model.baseline.run_id.clone(),
                     perturbed_run: model.perturbed.run_id.clone(),
-                    axis: self.axis.clone(),
+                    metric: self.metric.clone(),
                     delta,
                     relation: self.relation,
                     threshold: self.threshold.clone(),
@@ -312,8 +333,8 @@ pub struct PairedComparisonWitness {
     pub baseline_run: String,
     /// Perturbed run identity.
     pub perturbed_run: String,
-    /// Compared stock axis.
-    pub axis: String,
+    /// Exact response metric whose delta was observed.
+    pub metric: PairedResponseMetric,
     /// Exact perturbed-minus-baseline delta.
     pub delta: BigRational,
     /// Required relation.
@@ -331,8 +352,8 @@ pub struct PairedComparisonViolation {
     pub baseline_run: String,
     /// Perturbed run identity.
     pub perturbed_run: String,
-    /// Compared stock axis.
-    pub axis: String,
+    /// Exact response metric whose delta was observed.
+    pub metric: PairedResponseMetric,
     /// Exact perturbed-minus-baseline delta.
     pub delta: BigRational,
     /// Required relation.

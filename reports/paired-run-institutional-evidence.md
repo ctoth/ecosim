@@ -14,8 +14,10 @@ values to agree would erase the intervention being compared. Run identities
 must remain distinct.
 
 Named `PairedComparisonSentence` values compare the exact
-perturbed-minus-baseline terminal delta with a rational threshold. Witnesses
-retain both run identities, axis, delta, relation, and threshold. Suites stop
+perturbed-minus-baseline terminal delta with a rational threshold. A typed
+`PairedResponseMetric::TerminalStock` makes the observation rule explicit in
+the sentence, witness, and violation. Witnesses retain both run identities,
+metric, delta, relation, and threshold. Suites stop
 at and retain the first failed named comparison. A total bijective axis
 renaming applied to both models and sentences preserves comparative truth.
 

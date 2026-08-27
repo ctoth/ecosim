@@ -179,6 +179,16 @@ proptest! {
         );
         prop_assert!(kinetic.is_err());
 
+        let undefined_saturation = KineticSentence::new(
+            "zero-half-saturation",
+            KineticLaw::ProducerGrowth {
+                producer: "plant".to_owned(),
+                maximum: q(magnitude, 1),
+                half_saturation: q(0, 1),
+            },
+        );
+        prop_assert!(undefined_saturation.is_err());
+
         let allocation = AllocationSentence::new(
             "duplicate-withdrawals",
             "grazer",

@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use ecosim_core::{
     ComparisonRelation, ConsumerSpec, ExactPairError, ExactPairedModel, ExactRunRecord,
-    ExactTrophicNetwork, PairedComparisonSentence, PairedComparisonVerdict, ProducerSpec,
-    TrophicNetworkSpec,
+    ExactTrophicNetwork, PairedComparisonSentence, PairedComparisonVerdict, PairedResponseMetric,
+    ProducerSpec, TrophicNetworkSpec,
 };
 use num_rational::BigRational;
 
@@ -99,6 +99,7 @@ fn exact_pair_returns_named_rational_witnesses_and_first_violation() {
             if witness.sentence == "producer-increases"
                 && witness.baseline_run == "control"
                 && witness.perturbed_run == "treatment"
+                && witness.metric == PairedResponseMetric::TerminalStock("producer".to_owned())
                 && witness.delta == q(3)
     ));
     assert!(matches!(
@@ -136,6 +137,18 @@ fn paired_model_rejects_a_different_observation_time_grid() {
         &audited_network_with_elapsed(13, 5, 0, 0, q(2)),
     )
     .unwrap();
+    assert_eq!(
+        ExactPairedModel::new(baseline, perturbed),
+        Err(ExactPairError::Mismatch("observation time grid"))
+    );
+}
+
+#[test]
+fn paired_model_rejects_a_different_horizon() {
+    let baseline = run("control", 10, 7);
+    let mut longer = audited_network(13, 5, 0, 0);
+    longer.step(q(1), q(0), BTreeMap::new()).unwrap();
+    let perturbed = ExactRunRecord::from_trophic_network("treatment", &longer).unwrap();
     assert_eq!(
         ExactPairedModel::new(baseline, perturbed),
         Err(ExactPairError::Mismatch("observation time grid"))

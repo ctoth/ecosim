@@ -80,13 +80,14 @@ fn checked_sentence_construction_rejects_a_nitrogen_flow_in_a_carbon_law() {
     ));
 }
 
-#[test]
-fn omitting_heat_is_a_visible_energy_balance_and_ledger_failure() {
+fn omitted_energy_boundary_trace(
+    boundary_name: &str,
+) -> (ecosim_core::SyntheticMultikindFixture, TransitionTrace) {
     let fixture = synthetic_multikind_fixture().unwrap();
     let mut data = fixture.trace().records()[0].clone().into_data();
     data.settled_boundary = ExactAmounts::new(data.settled_boundary.iter().map(
         |(boundary, kind, amount)| {
-            let amount = if boundary.as_str() == "energy-heat" {
+            let amount = if boundary.as_str() == boundary_name {
                 BigRational::from_integer(0.into())
             } else {
                 amount.clone()
@@ -98,6 +99,12 @@ fn omitting_heat_is_a_visible_energy_balance_and_ledger_failure() {
     let record = TransitionRecord::new(fixture.carrier(), data).unwrap();
     let trace = TransitionTrace::new(Arc::clone(fixture.carrier()), vec![record]).unwrap();
 
+    (fixture, trace)
+}
+
+fn assert_visible_energy_boundary_failure(boundary_name: &str) {
+    let (fixture, trace) = omitted_energy_boundary_trace(boundary_name);
+
     assert!(matches!(
         check_open_balance(&fixture.open_balances()[3], &trace).unwrap(),
         OpenBalanceVerdict::Violated(violation)
@@ -105,6 +112,19 @@ fn omitting_heat_is_a_visible_energy_balance_and_ledger_failure() {
     ));
     assert!(matches!(
         check_boundary_correspondence(&fixture.boundary_sentences()[7], &trace).unwrap(),
-        BoundaryVerdict::Violated(_)
+        BoundaryVerdict::Violated(violation)
+            if violation.transition == 0
+                && violation.ledger_axis.as_str() == "cumulative-energy-output"
+                && violation.boundaries.iter().any(|boundary| boundary.as_str() == boundary_name)
     ));
+}
+
+#[test]
+fn omitting_heat_is_a_visible_energy_balance_and_ledger_failure() {
+    assert_visible_energy_boundary_failure("energy-heat");
+}
+
+#[test]
+fn omitting_export_is_a_visible_energy_balance_and_ledger_failure() {
+    assert_visible_energy_boundary_failure("energy-export");
 }

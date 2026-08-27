@@ -2471,6 +2471,7 @@ fn material_kind() -> KindId {
 #[cfg(test)]
 mod evidence_tests {
     use super::*;
+    use crate::kinetics::{AllocationSentence, AllocationVerdict, AllocationViolationReason};
     use conservation_trace::LawViolation;
 
     fn integer(value: i64) -> BigRational {
@@ -2564,6 +2565,48 @@ mod evidence_tests {
                 previous,
                 observed,
             }) if previous == &integer(1) && observed == &integer(0)
+        ));
+    }
+
+    #[test]
+    fn allocation_sentence_rejects_settlement_that_exceeds_its_proposal() {
+        let spec = TrophicNetworkSpec::new(
+            vec![ProducerSpec::new(
+                "plant",
+                integer(1),
+                integer(1),
+                integer(0),
+            )],
+            Vec::new(),
+            Vec::new(),
+            integer(0),
+        );
+        let initial = BTreeMap::from([
+            (NUTRIENT.to_owned(), integer(1)),
+            ("plant".to_owned(), integer(1)),
+            (DETRITUS.to_owned(), integer(0)),
+        ]);
+        let mut network = ExactTrophicNetwork::new(spec, initial).unwrap();
+        network
+            .step(integer(1), integer(0), BTreeMap::new())
+            .unwrap();
+        let mut transition = network.transitions()[0].clone();
+        let flow = TrophicFlow::ProducerGrowth("plant".to_owned());
+        let flow_index = transition
+            .flow_symbols()
+            .iter()
+            .position(|candidate| candidate == &flow)
+            .unwrap();
+        transition.settled[flow_index] = &transition.proposed[flow_index] + integer(1);
+        let sentence =
+            AllocationSentence::new("plant-source-allocation", NUTRIENT, [flow.clone()]).unwrap();
+
+        assert!(matches!(
+            sentence.evaluate(&[transition]).unwrap(),
+            AllocationVerdict::Violated(violation)
+                if violation.flow == flow
+                    && violation.reason == AllocationViolationReason::OutOfBounds
+                    && violation.settled > violation.proposed
         ));
     }
 }

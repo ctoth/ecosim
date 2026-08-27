@@ -792,8 +792,12 @@ fn competing_feeding_edges_are_independent_of_declaration_order() {
         ("second".to_owned(), ratio(10, 1)),
         ("detritus".to_owned(), ratio(0, 1)),
     ]);
-    let mut forward = ExactTrophicNetwork::new(forward_spec, initial.clone()).unwrap();
-    let mut reverse = ExactTrophicNetwork::new(reverse_spec, initial).unwrap();
+    let forward_plan = ExactTrophicNetworkPlan::compile(forward_spec).unwrap();
+    let reverse_plan = ExactTrophicNetworkPlan::compile(reverse_spec).unwrap();
+
+    assert_eq!(forward_plan.law_suite_laws(), reverse_plan.law_suite_laws());
+    let mut forward = forward_plan.start(initial.clone()).unwrap();
+    let mut reverse = reverse_plan.start(initial).unwrap();
 
     forward
         .step(ratio(1, 1), ratio(0, 1), BTreeMap::new())

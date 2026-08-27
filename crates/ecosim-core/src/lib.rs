@@ -1,13 +1,19 @@
 #![forbid(unsafe_code)]
 
-//! Exact energy accounting for the first ecosystem simulation slice.
+//! Conserved exact and dense foundations for ecosystem simulation.
 
 mod food_web;
 pub mod paper_models;
+mod trophic_network;
 
 pub use food_web::{
     DenseFoodWeb, DenseFoodWebParameters, DenseFoodWebStep, FoodWeb, FoodWebError,
     FoodWebParameters, FoodWebStep,
+};
+pub use trophic_network::{
+    ConsumerSpec, DenseTrophicNetwork, DenseTrophicNetworkPlan, DenseTrophicNetworkStep,
+    ExactTrophicNetwork, ExactTrophicNetworkPlan, ExactTrophicNetworkStep, FeedingSpec,
+    ProducerSpec, TrophicNetworkError, TrophicNetworkSpec,
 };
 
 use std::error::Error as StdError;

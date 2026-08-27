@@ -1,12 +1,17 @@
+use std::collections::BTreeMap;
+
 use ecosim_core::{
-    BalanceReport, Compartment, DenseFoodWeb, DenseFoodWebParameters, DenseFoodWebStep, FoodWeb,
-    FoodWebError, FoodWebParameters, FoodWebStep, World, WorldError, energy_law, integer_amount,
+    BalanceReport, Compartment, ConsumerSpec, DenseFoodWeb, DenseFoodWebParameters,
+    DenseFoodWebStep, DenseTrophicNetwork, DenseTrophicNetworkPlan, DenseTrophicNetworkStep,
+    ExactTrophicNetwork, ExactTrophicNetworkPlan, ExactTrophicNetworkStep, FeedingSpec, FoodWeb,
+    FoodWebError, FoodWebParameters, FoodWebStep, ProducerSpec, TrophicNetworkError,
+    TrophicNetworkSpec, World, WorldError, energy_law, integer_amount,
 };
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::ToPrimitive;
 use numpy::ndarray::Array3;
-use numpy::{PyArray3, PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{PyArray3, PyReadonlyArray2, PyReadonlyArray3, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyModule};
@@ -16,6 +21,10 @@ fn invalid(error: WorldError) -> PyErr {
 }
 
 fn invalid_food_web(error: FoodWebError) -> PyErr {
+    PyValueError::new_err(error.to_string())
+}
+
+fn invalid_trophic_network(error: TrophicNetworkError) -> PyErr {
     PyValueError::new_err(error.to_string())
 }
 
@@ -455,6 +464,492 @@ impl PyDenseFoodWeb {
     }
 }
 
+type ProducerTuple = (String, f64, f64, f64);
+type ConsumerTuple = (String, f64);
+type FeedingTuple = (String, String, f64, f64, f64);
+
+fn dense_trophic_spec(
+    producers: Vec<ProducerTuple>,
+    consumers: Vec<ConsumerTuple>,
+    feedings: Vec<FeedingTuple>,
+    decomposition: f64,
+) -> TrophicNetworkSpec<f64> {
+    TrophicNetworkSpec::new(
+        producers
+            .into_iter()
+            .map(|(name, max_growth, half_saturation, mortality)| {
+                ProducerSpec::new(name, max_growth, half_saturation, mortality)
+            })
+            .collect(),
+        consumers
+            .into_iter()
+            .map(|(name, mortality)| ConsumerSpec::new(name, mortality))
+            .collect(),
+        feedings
+            .into_iter()
+            .map(
+                |(consumer, resource, max_rate, half_saturation, efficiency)| {
+                    FeedingSpec::new(consumer, resource, max_rate, half_saturation, efficiency)
+                },
+            )
+            .collect(),
+        decomposition,
+    )
+}
+
+fn exact_trophic_spec(
+    producers: Vec<ProducerTuple>,
+    consumers: Vec<ConsumerTuple>,
+    feedings: Vec<FeedingTuple>,
+    decomposition: f64,
+) -> PyResult<TrophicNetworkSpec<BigRational>> {
+    Ok(TrophicNetworkSpec::new(
+        producers
+            .into_iter()
+            .map(|(name, max_growth, half_saturation, mortality)| {
+                Ok(ProducerSpec::new(
+                    name,
+                    rational(max_growth)?,
+                    rational(half_saturation)?,
+                    rational(mortality)?,
+                ))
+            })
+            .collect::<PyResult<_>>()?,
+        consumers
+            .into_iter()
+            .map(|(name, mortality)| Ok(ConsumerSpec::new(name, rational(mortality)?)))
+            .collect::<PyResult<_>>()?,
+        feedings
+            .into_iter()
+            .map(
+                |(consumer, resource, max_rate, half_saturation, efficiency)| {
+                    Ok(FeedingSpec::new(
+                        consumer,
+                        resource,
+                        rational(max_rate)?,
+                        rational(half_saturation)?,
+                        rational(efficiency)?,
+                    ))
+                },
+            )
+            .collect::<PyResult<_>>()?,
+        rational(decomposition)?,
+    ))
+}
+
+fn exact_stock_map(values: BTreeMap<String, f64>) -> PyResult<BTreeMap<String, BigRational>> {
+    values
+        .into_iter()
+        .map(|(name, value)| Ok((name, rational(value)?)))
+        .collect()
+}
+
+#[pyclass(name = "TrophicNetworkStep", frozen)]
+struct PyTrophicNetworkStep {
+    inner: ExactTrophicNetworkStep,
+}
+
+#[pymethods]
+impl PyTrophicNetworkStep {
+    #[getter]
+    fn elapsed(&self) -> PyResult<f64> {
+        approximate(self.inner.elapsed())
+    }
+
+    fn growth(&self, producer: &str) -> PyResult<Option<f64>> {
+        self.inner.growth(producer).map(approximate).transpose()
+    }
+
+    fn feeding(&self, consumer: &str, resource: &str) -> PyResult<Option<f64>> {
+        self.inner
+            .feeding(consumer, resource)
+            .as_ref()
+            .map(approximate)
+            .transpose()
+    }
+
+    fn mortality(&self, stock: &str) -> PyResult<Option<f64>> {
+        self.inner.mortality(stock).map(approximate).transpose()
+    }
+
+    fn harvest(&self, consumer: &str) -> PyResult<Option<f64>> {
+        self.inner.harvest(consumer).map(approximate).transpose()
+    }
+
+    fn decomposition(&self) -> PyResult<f64> {
+        approximate(self.inner.decomposition())
+    }
+}
+
+#[pyclass(name = "NativeTrophicNetwork")]
+struct PyTrophicNetwork {
+    inner: ExactTrophicNetwork,
+}
+
+#[pyclass(name = "NativeTrophicNetworkPlan", frozen)]
+struct PyTrophicNetworkPlan {
+    inner: ExactTrophicNetworkPlan,
+}
+
+#[pymethods]
+impl PyTrophicNetworkPlan {
+    #[new]
+    fn new(
+        producers: Vec<ProducerTuple>,
+        consumers: Vec<ConsumerTuple>,
+        feedings: Vec<FeedingTuple>,
+        decomposition: f64,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: ExactTrophicNetworkPlan::compile(exact_trophic_spec(
+                producers,
+                consumers,
+                feedings,
+                decomposition,
+            )?)
+            .map_err(invalid_trophic_network)?,
+        })
+    }
+
+    #[getter]
+    fn stock_names(&self) -> Vec<String> {
+        self.inner.stock_names().to_vec()
+    }
+
+    #[getter]
+    fn consumer_names(&self) -> Vec<String> {
+        self.inner.consumer_names().to_vec()
+    }
+
+    fn start(&self, initial: BTreeMap<String, f64>) -> PyResult<PyTrophicNetwork> {
+        Ok(PyTrophicNetwork {
+            inner: self
+                .inner
+                .start(exact_stock_map(initial)?)
+                .map_err(invalid_trophic_network)?,
+        })
+    }
+}
+
+#[pymethods]
+impl PyTrophicNetwork {
+    #[new]
+    fn new(
+        producers: Vec<ProducerTuple>,
+        consumers: Vec<ConsumerTuple>,
+        feedings: Vec<FeedingTuple>,
+        decomposition: f64,
+        initial: BTreeMap<String, f64>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: ExactTrophicNetwork::new(
+                exact_trophic_spec(producers, consumers, feedings, decomposition)?,
+                exact_stock_map(initial)?,
+            )
+            .map_err(invalid_trophic_network)?,
+        })
+    }
+
+    #[getter]
+    fn time(&self) -> PyResult<f64> {
+        approximate(self.inner.time())
+    }
+
+    #[getter]
+    fn stock_names(&self) -> Vec<String> {
+        self.inner.stock_names().to_vec()
+    }
+
+    fn stock(&self, name: &str) -> PyResult<f64> {
+        self.inner
+            .stock(name)
+            .ok_or_else(|| PyValueError::new_err(format!("unknown trophic stock: {name}")))
+            .and_then(approximate)
+    }
+
+    #[getter]
+    fn inputs(&self) -> PyResult<f64> {
+        approximate(&self.inner.inputs())
+    }
+
+    #[getter]
+    fn outputs(&self) -> PyResult<f64> {
+        approximate(&self.inner.outputs())
+    }
+
+    #[getter]
+    fn balance_residual(&self) -> PyResult<f64> {
+        approximate(&self.inner.balance_residual())
+    }
+
+    #[getter]
+    fn balanced(&self) -> bool {
+        self.inner.is_balanced()
+    }
+
+    #[pyo3(signature = (elapsed, nutrient_input=0.0, harvests=None))]
+    fn step(
+        &mut self,
+        elapsed: f64,
+        nutrient_input: f64,
+        harvests: Option<BTreeMap<String, f64>>,
+    ) -> PyResult<PyTrophicNetworkStep> {
+        Ok(PyTrophicNetworkStep {
+            inner: self
+                .inner
+                .step(
+                    rational(elapsed)?,
+                    rational(nutrient_input)?,
+                    exact_stock_map(harvests.unwrap_or_default())?,
+                )
+                .map_err(invalid_trophic_network)?,
+        })
+    }
+}
+
+#[pyclass(name = "DenseTrophicNetworkStep", frozen)]
+struct PyDenseTrophicNetworkStep {
+    inner: DenseTrophicNetworkStep,
+}
+
+#[pymethods]
+impl PyDenseTrophicNetworkStep {
+    #[getter]
+    fn elapsed(&self) -> f64 {
+        self.inner.elapsed()
+    }
+
+    fn growth(&self, producer: &str) -> Option<f64> {
+        self.inner.growth(producer)
+    }
+
+    fn feeding(&self, consumer: &str, resource: &str) -> Option<f64> {
+        self.inner.feeding(consumer, resource)
+    }
+
+    fn mortality(&self, stock: &str) -> Option<f64> {
+        self.inner.mortality(stock)
+    }
+
+    fn harvest(&self, consumer: &str) -> Option<f64> {
+        self.inner.harvest(consumer)
+    }
+
+    fn decomposition(&self) -> f64 {
+        self.inner.decomposition()
+    }
+}
+
+#[pyclass(name = "NativeDenseTrophicNetwork")]
+struct PyDenseTrophicNetwork {
+    inner: DenseTrophicNetwork,
+}
+
+#[pyclass(name = "NativeDenseTrophicNetworkPlan", frozen)]
+struct PyDenseTrophicNetworkPlan {
+    inner: DenseTrophicNetworkPlan,
+}
+
+#[pymethods]
+impl PyDenseTrophicNetworkPlan {
+    #[new]
+    fn new(
+        producers: Vec<ProducerTuple>,
+        consumers: Vec<ConsumerTuple>,
+        feedings: Vec<FeedingTuple>,
+        decomposition: f64,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: DenseTrophicNetworkPlan::compile(dense_trophic_spec(
+                producers,
+                consumers,
+                feedings,
+                decomposition,
+            ))
+            .map_err(invalid_trophic_network)?,
+        })
+    }
+
+    #[getter]
+    fn stock_names(&self) -> Vec<String> {
+        self.inner.stock_names().to_vec()
+    }
+
+    #[getter]
+    fn consumer_names(&self) -> Vec<String> {
+        self.inner.consumer_names().to_vec()
+    }
+
+    fn start(&self, initial: BTreeMap<String, f64>) -> PyResult<PyDenseTrophicNetwork> {
+        Ok(PyDenseTrophicNetwork {
+            inner: self.inner.start(initial).map_err(invalid_trophic_network)?,
+        })
+    }
+
+    #[pyo3(signature = (
+        initial_states,
+        steps,
+        elapsed,
+        nutrient_inputs=None,
+        harvests=None,
+    ))]
+    fn simulate<'py>(
+        &self,
+        py: Python<'py>,
+        initial_states: PyReadonlyArray2<'py, f64>,
+        steps: usize,
+        elapsed: f64,
+        nutrient_inputs: Option<PyReadonlyArray2<'py, f64>>,
+        harvests: Option<PyReadonlyArray3<'py, f64>>,
+    ) -> PyResult<Bound<'py, PyArray3<f64>>> {
+        if !elapsed.is_finite() || elapsed < 0.0 {
+            return Err(PyValueError::new_err(
+                "elapsed must be finite and nonnegative",
+            ));
+        }
+        let stock_count = self.inner.stock_names().len();
+        let consumer_count = self.inner.consumer_names().len();
+        let initial_shape = initial_states.shape();
+        let batch = initial_shape[0];
+        if initial_shape[1] != stock_count {
+            return Err(PyValueError::new_err(format!(
+                "initial_states must have shape (batch, {stock_count}), got ({batch}, {})",
+                initial_shape[1]
+            )));
+        }
+        validate_forcing_shape("nutrient_inputs", nutrient_inputs.as_ref(), batch, steps)?;
+        if let Some(values) = harvests.as_ref() {
+            let shape = values.shape();
+            if shape != [batch, steps, consumer_count] {
+                return Err(PyValueError::new_err(format!(
+                    "harvests must have shape ({batch}, {steps}, {consumer_count}), got ({}, {}, {})",
+                    shape[0], shape[1], shape[2]
+                )));
+            }
+            validate_dense_array3("harvests", values)?;
+        }
+        validate_dense_array("initial_states", &initial_states)?;
+        let time_points = steps
+            .checked_add(1)
+            .ok_or_else(|| PyValueError::new_err("steps is too large"))?;
+        let elements_per_batch = time_points
+            .checked_mul(stock_count)
+            .ok_or_else(|| PyValueError::new_err("trajectory shape is too large"))?;
+        let output_elements = batch
+            .checked_mul(elements_per_batch)
+            .ok_or_else(|| PyValueError::new_err("trajectory shape is too large"))?;
+        let output_bytes = output_elements
+            .checked_mul(std::mem::size_of::<f64>())
+            .ok_or_else(|| PyValueError::new_err("trajectory allocation is too large"))?;
+        if output_bytes > isize::MAX as usize {
+            return Err(PyValueError::new_err(
+                "trajectory allocation exceeds the platform limit",
+            ));
+        }
+
+        let initial = initial_states
+            .as_array()
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        let nutrient_inputs =
+            nutrient_inputs.map(|values| values.as_array().iter().copied().collect::<Vec<_>>());
+        let harvests = harvests.map(|values| values.as_array().iter().copied().collect::<Vec<_>>());
+        let plan = self.inner.clone();
+        let output = py
+            .detach(move || {
+                compute_trophic_network_trajectory(
+                    &plan,
+                    &initial,
+                    batch,
+                    steps,
+                    time_points,
+                    stock_count,
+                    consumer_count,
+                    elapsed,
+                    nutrient_inputs.as_deref(),
+                    harvests.as_deref(),
+                    output_elements,
+                )
+            })
+            .map_err(PyValueError::new_err)?;
+        let trajectory = Array3::from_shape_vec((batch, time_points, stock_count), output)
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        Ok(PyArray3::from_owned_array(py, trajectory))
+    }
+}
+
+#[pymethods]
+impl PyDenseTrophicNetwork {
+    #[new]
+    fn new(
+        producers: Vec<ProducerTuple>,
+        consumers: Vec<ConsumerTuple>,
+        feedings: Vec<FeedingTuple>,
+        decomposition: f64,
+        initial: BTreeMap<String, f64>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: DenseTrophicNetwork::new(
+                dense_trophic_spec(producers, consumers, feedings, decomposition),
+                initial,
+            )
+            .map_err(invalid_trophic_network)?,
+        })
+    }
+
+    #[getter]
+    fn time(&self) -> f64 {
+        self.inner.time()
+    }
+
+    #[getter]
+    fn stock_names(&self) -> Vec<String> {
+        self.inner.stock_names().to_vec()
+    }
+
+    fn stock(&self, name: &str) -> PyResult<f64> {
+        self.inner
+            .stock(name)
+            .ok_or_else(|| PyValueError::new_err(format!("unknown trophic stock: {name}")))
+    }
+
+    #[getter]
+    fn inputs(&self) -> f64 {
+        self.inner.inputs()
+    }
+
+    #[getter]
+    fn outputs(&self) -> f64 {
+        self.inner.outputs()
+    }
+
+    #[getter]
+    fn balance_residual(&self) -> f64 {
+        self.inner.balance_residual()
+    }
+
+    #[getter]
+    fn balanced(&self) -> bool {
+        self.inner.is_balanced()
+    }
+
+    #[pyo3(signature = (elapsed, nutrient_input=0.0, harvests=None))]
+    fn step(
+        &mut self,
+        elapsed: f64,
+        nutrient_input: f64,
+        harvests: Option<BTreeMap<String, f64>>,
+    ) -> PyResult<PyDenseTrophicNetworkStep> {
+        Ok(PyDenseTrophicNetworkStep {
+            inner: self
+                .inner
+                .step(elapsed, nutrient_input, harvests.unwrap_or_default())
+                .map_err(invalid_trophic_network)?,
+        })
+    }
+}
+
 impl PyDenseFoodWeb {
     fn stock(&self, name: &str) -> f64 {
         self.inner
@@ -596,6 +1091,54 @@ fn compute_food_web_trajectory(
     Ok(trajectory)
 }
 
+#[allow(clippy::too_many_arguments)]
+fn compute_trophic_network_trajectory(
+    plan: &DenseTrophicNetworkPlan,
+    initial: &[f64],
+    batch: usize,
+    steps: usize,
+    time_points: usize,
+    stock_count: usize,
+    consumer_count: usize,
+    elapsed: f64,
+    nutrient_inputs: Option<&[f64]>,
+    harvests: Option<&[f64]>,
+    output_elements: usize,
+) -> Result<Vec<f64>, String> {
+    let mut trajectory = Vec::new();
+    trajectory
+        .try_reserve_exact(output_elements)
+        .map_err(|error| format!("trajectory allocation failed: {error}"))?;
+    trajectory.resize(output_elements, 0.0);
+    let zero_harvests = vec![0.0; consumer_count];
+
+    for batch_index in 0..batch {
+        let initial_offset = batch_index * stock_count;
+        let mut network = plan
+            .start_ordered(initial[initial_offset..initial_offset + stock_count].to_vec())
+            .map_err(|error| error.to_string())?;
+        let trajectory_offset = batch_index * time_points * stock_count;
+        trajectory[trajectory_offset..trajectory_offset + stock_count]
+            .copy_from_slice(network.amounts());
+
+        for step_index in 0..steps {
+            let forcing_index = batch_index * steps + step_index;
+            let nutrient_input = nutrient_inputs.map_or(0.0, |values| values[forcing_index]);
+            let harvest_offset = forcing_index * consumer_count;
+            let harvest = harvests.map_or(zero_harvests.as_slice(), |values| {
+                &values[harvest_offset..harvest_offset + consumer_count]
+            });
+            network
+                .step_discard_ordered(elapsed, nutrient_input, harvest)
+                .map_err(|error| error.to_string())?;
+            let state_offset = trajectory_offset + (step_index + 1) * stock_count;
+            trajectory[state_offset..state_offset + stock_count].copy_from_slice(network.amounts());
+        }
+    }
+
+    Ok(trajectory)
+}
+
 fn validate_forcing_shape(
     name: &str,
     values: Option<&PyReadonlyArray2<'_, f64>>,
@@ -616,6 +1159,20 @@ fn validate_forcing_shape(
 }
 
 fn validate_dense_array(name: &str, values: &PyReadonlyArray2<'_, f64>) -> PyResult<()> {
+    if values
+        .as_array()
+        .iter()
+        .all(|value| value.is_finite() && *value >= 0.0)
+    {
+        Ok(())
+    } else {
+        Err(PyValueError::new_err(format!(
+            "{name} values must be finite and nonnegative"
+        )))
+    }
+}
+
+fn validate_dense_array3(name: &str, values: &PyReadonlyArray3<'_, f64>) -> PyResult<()> {
     if values
         .as_array()
         .iter()
@@ -658,6 +1215,12 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyFoodWeb>()?;
     module.add_class::<PyDenseFoodWebStep>()?;
     module.add_class::<PyDenseFoodWeb>()?;
+    module.add_class::<PyTrophicNetworkStep>()?;
+    module.add_class::<PyTrophicNetworkPlan>()?;
+    module.add_class::<PyTrophicNetwork>()?;
+    module.add_class::<PyDenseTrophicNetworkStep>()?;
+    module.add_class::<PyDenseTrophicNetworkPlan>()?;
+    module.add_class::<PyDenseTrophicNetwork>()?;
     module.add_function(wrap_pyfunction!(energy_law_coefficients, module)?)?;
     module.add_function(wrap_pyfunction!(simulate_food_web, module)?)?;
     Ok(())

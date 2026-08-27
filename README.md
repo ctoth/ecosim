@@ -66,6 +66,34 @@ propagation explicit: enrichment can propagate from nutrient to producers and
 consumers, while sustained consumer harvest can release producers from
 grazing.
 
+## Configurable trophic networks
+
+`TrophicNetworkSpec` declares any number of nutrient-limited producers,
+consumers, and directed feeding relationships. Compilation creates nutrient
+and detritus pools; producer growth; assimilated and unassimilated feeding;
+biotic mortality; detrital recycling; nutrient input; and per-consumer harvest
+flows. All process requests are evaluated from the same pre-step state and
+settled simultaneously, so competing producers and consumers share depleted
+resources without declaration-order priority.
+
+`TrophicNetwork` executes the compiled structure with exact rational
+arithmetic. `DenseTrophicNetwork` uses the same topology and process laws with
+finite `f64` state. Feeding efficiency is represented by paired resource flows
+to the consumer and detritus, so proportional source limitation preserves the
+declared assimilation/waste partition as well as total material. The model
+still uses the deliberately abstract material-equivalent currency described in
+the verification scope below.
+
+`TrophicNetworkPlan` and `DenseTrophicNetworkPlan` compile that immutable
+structure separately from mutable run state, so one plan can start independent
+runs without rebuilding its topology and process graph. The dense plan also
+runs dynamic NumPy ensembles: `initial_states` has shape `(batch, stocks)`,
+optional nutrient inputs have shape `(batch, steps)`, optional harvests have
+shape `(batch, steps, consumers)`, and the returned trajectory has shape
+`(batch, steps + 1, stocks)`. `stock_names` and `consumer_names` define the
+array-axis order. Inputs are validated and copied before native execution
+releases Python's GIL; the ensemble loop uses the no-report settlement path.
+
 ## Paper benchmarks
 
 `ecosim_core::paper_models::almonacid_2020` independently implements the NPZD

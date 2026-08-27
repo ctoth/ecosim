@@ -12,8 +12,10 @@ pub use food_web::{
 };
 pub use trophic_network::{
     ConsumerSpec, DenseTrophicNetwork, DenseTrophicNetworkPlan, DenseTrophicNetworkStep,
-    ExactTrophicNetwork, ExactTrophicNetworkPlan, ExactTrophicNetworkStep, FeedingSpec,
-    ProducerSpec, TrophicNetworkError, TrophicNetworkSpec,
+    ExactTrophicNetwork, ExactTrophicNetworkEvidence, ExactTrophicNetworkPlan,
+    ExactTrophicNetworkStep, FeedingSpec, ProducerSpec, TROPHIC_DENSE_BALANCE_ABSOLUTE_TOLERANCE,
+    TROPHIC_DENSE_BALANCE_RELATIVE_TOLERANCE, TrophicLaw, TrophicLawEvidence, TrophicNetworkError,
+    TrophicNetworkSpec, trophic_dense_balance_tolerance,
 };
 
 use std::error::Error as StdError;

@@ -5,17 +5,35 @@ use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 
-use conservation_core::KindId;
+use conservation_core::{AxisId, BalanceLaw, Grade, GradedLaw, KindId, Provenance};
 use conservation_dynamics::{
     DenseState, DenseTolerance, ExactState, FlowSpec, FlowTopology, ProcessId, StockDefinition,
     StockFlowError, StockId,
 };
+use conservation_trace::{LawVerdict, TraceState, check_law};
+use institution::Institution;
+use institution_conservation::{ConservationInstitution, ConservationSignature, TraceModel};
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
 
 const NUTRIENT: &str = "nutrient";
 const DETRITUS: &str = "detritus";
 const MATERIAL: &str = "material-equivalent";
+const CUMULATIVE_INPUT: &str = "cumulative_input";
+const CUMULATIVE_OUTPUT: &str = "cumulative_output";
+
+/// Absolute tolerance used for dense trophic open-balance diagnostics.
+pub const TROPHIC_DENSE_BALANCE_ABSOLUTE_TOLERANCE: f64 = 256.0 * f64::EPSILON;
+/// Relative tolerance used for dense trophic open-balance diagnostics.
+pub const TROPHIC_DENSE_BALANCE_RELATIVE_TOLERANCE: f64 = 256.0 * f64::EPSILON;
+
+/// The explicit numerical tolerance used by [`DenseTrophicNetwork::is_balanced`].
+pub fn trophic_dense_balance_tolerance() -> DenseTolerance {
+    DenseTolerance {
+        absolute: TROPHIC_DENSE_BALANCE_ABSOLUTE_TOLERANCE,
+        relative: TROPHIC_DENSE_BALANCE_RELATIVE_TOLERANCE,
+    }
+}
 
 /// One nutrient-limited primary producer.
 #[derive(Clone, Debug, PartialEq)]
@@ -191,6 +209,8 @@ pub enum TrophicNetworkError {
     HarvestCount { expected: usize, actual: usize },
     /// The shared stock-flow kernel rejected compiled data or arithmetic.
     Settlement(StockFlowError),
+    /// Institutional trace or sentence construction failed.
+    Evidence(String),
 }
 
 impl fmt::Display for TrophicNetworkError {
@@ -227,6 +247,9 @@ impl fmt::Display for TrophicNetworkError {
                 "harvest vector has {actual} consumers; compiled network requires {expected}"
             ),
             Self::Settlement(error) => error.fmt(formatter),
+            Self::Evidence(message) => {
+                write!(formatter, "institutional evidence failed: {message}")
+            }
         }
     }
 }
@@ -294,12 +317,102 @@ struct CompiledNetwork<N> {
     detritus_stock: usize,
 }
 
+/// The semantic role of one compiled trophic-network sentence.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum TrophicLaw {
+    /// Total physical material adjusted by cumulative boundary flows is invariant.
+    MaterialInvariant,
+    /// One named physical stock remains nonnegative.
+    StockNonnegative(String),
+    /// The cumulative input ledger never decreases.
+    CumulativeInputNondecreasing,
+    /// The cumulative output ledger never decreases.
+    CumulativeOutputNondecreasing,
+}
+
+impl TrophicLaw {
+    /// The single associated axis, when this sentence concerns one axis.
+    pub fn axis_name(&self) -> Option<&str> {
+        match self {
+            Self::MaterialInvariant => None,
+            Self::StockNonnegative(name) => Some(name),
+            Self::CumulativeInputNondecreasing => Some(CUMULATIVE_INPUT),
+            Self::CumulativeOutputNondecreasing => Some(CUMULATIVE_OUTPUT),
+        }
+    }
+}
+
+/// One named graded sentence and its typed verdict for an exact run.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrophicLawEvidence {
+    law: TrophicLaw,
+    grade: Grade,
+    verdict: LawVerdict,
+}
+
+impl TrophicLawEvidence {
+    /// Semantic role of the checked sentence.
+    pub fn law(&self) -> &TrophicLaw {
+        &self.law
+    }
+
+    /// Grade under which the sentence was checked.
+    pub fn grade(&self) -> Grade {
+        self.grade
+    }
+
+    /// Typed positive witness or first-offense violation.
+    pub fn verdict(&self) -> &LawVerdict {
+        &self.verdict
+    }
+
+    /// Whether this individual sentence was satisfied.
+    pub fn is_satisfied(&self) -> bool {
+        matches!(self.verdict, LawVerdict::Satisfied(_))
+    }
+}
+
+/// Complete institutional evidence for one exact trophic-network trace.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExactTrophicNetworkEvidence {
+    laws: Vec<TrophicLawEvidence>,
+}
+
+impl ExactTrophicNetworkEvidence {
+    /// Verdicts in stable compiled order: invariant, stocks, input, output.
+    pub fn laws(&self) -> &[TrophicLawEvidence] {
+        &self.laws
+    }
+
+    /// Whether every compiled sentence was satisfied.
+    pub fn is_satisfied(&self) -> bool {
+        self.laws.iter().all(TrophicLawEvidence::is_satisfied)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct NamedSentence {
+    law: TrophicLaw,
+    sentence: GradedLaw,
+}
+
+#[derive(Clone, Debug)]
+struct ExactEvidencePlan {
+    signature: ConservationSignature,
+    stock_axes: Vec<AxisId>,
+    cumulative_input_axis: AxisId,
+    cumulative_output_axis: AxisId,
+    sentences: Vec<NamedSentence>,
+}
+
 /// Stateful exact-arithmetic execution of a compiled trophic network.
 #[derive(Clone, Debug)]
 pub struct ExactTrophicNetwork {
     compiled: Arc<CompiledNetwork<BigRational>>,
+    evidence_plan: Arc<ExactEvidencePlan>,
     state: ExactState,
     time: BigRational,
+    trace: Vec<TraceState>,
 }
 
 impl ExactTrophicNetwork {
@@ -355,6 +468,19 @@ impl ExactTrophicNetwork {
         self.balance_residual().is_zero()
     }
 
+    /// Exact trace states, beginning with the initial state.
+    pub fn trace(&self) -> &[TraceState] {
+        &self.trace
+    }
+
+    /// Evaluates every compiled graded sentence for this run.
+    ///
+    /// At least one successful step is required because institutional trace
+    /// satisfaction compares a minimum of two states.
+    pub fn evidence(&self) -> Result<ExactTrophicNetworkEvidence, TrophicNetworkError> {
+        evaluate_evidence(&self.evidence_plan, &self.trace)
+    }
+
     /// Settles all growth, feeding, mortality, decomposition, input, and harvest proposals.
     pub fn step(
         &mut self,
@@ -375,8 +501,10 @@ impl ExactTrophicNetwork {
         let mut next_state = self.state.clone();
         let settlement = next_state.settle(&requested)?;
         let next_time = &self.time + &elapsed;
+        let next_trace_state = exact_trace_state(&self.evidence_plan, &next_state)?;
         self.state = next_state;
         self.time = next_time;
+        self.trace.push(next_trace_state);
         Ok(ExactTrophicNetworkStep {
             layout: Arc::clone(&self.compiled.layout),
             applied: settlement.applied().to_vec(),
@@ -389,15 +517,16 @@ impl ExactTrophicNetwork {
 #[derive(Clone, Debug)]
 pub struct ExactTrophicNetworkPlan {
     compiled: Arc<CompiledNetwork<BigRational>>,
+    evidence: Arc<ExactEvidencePlan>,
 }
 
 impl ExactTrophicNetworkPlan {
     /// Validates and compiles an exact trophic declaration once.
     pub fn compile(spec: TrophicNetworkSpec<BigRational>) -> Result<Self, TrophicNetworkError> {
         validate_exact_spec(&spec)?;
-        Ok(Self {
-            compiled: Arc::new(compile_network(spec)?),
-        })
+        let compiled = Arc::new(compile_network(spec)?);
+        let evidence = Arc::new(compile_evidence_plan(&compiled.layout.stock_names)?);
+        Ok(Self { compiled, evidence })
     }
 
     /// Stable stock order used by every run from this plan.
@@ -410,16 +539,37 @@ impl ExactTrophicNetworkPlan {
         &self.compiled.layout.consumer_names
     }
 
+    /// Stable evidence-axis order: physical stocks, cumulative input, cumulative output.
+    pub fn evidence_axis_names(&self) -> impl Iterator<Item = &str> {
+        self.evidence
+            .stock_axes
+            .iter()
+            .chain([
+                &self.evidence.cumulative_input_axis,
+                &self.evidence.cumulative_output_axis,
+            ])
+            .map(AxisId::as_str)
+    }
+
+    /// Stable semantic roles of the compiled sentence suite.
+    pub fn evidence_laws(&self) -> impl ExactSizeIterator<Item = &TrophicLaw> {
+        self.evidence.sentences.iter().map(|named| &named.law)
+    }
+
     /// Starts an independent exact run without recompiling the topology.
     pub fn start(
         &self,
         initial: BTreeMap<String, BigRational>,
     ) -> Result<ExactTrophicNetwork, TrophicNetworkError> {
         let amounts = exact_initial(&self.compiled.layout, initial)?;
+        let state = ExactState::new(Arc::clone(&self.compiled.layout.topology), amounts)?;
+        let initial_trace_state = exact_trace_state(&self.evidence, &state)?;
         Ok(ExactTrophicNetwork {
-            state: ExactState::new(Arc::clone(&self.compiled.layout.topology), amounts)?,
+            state,
             compiled: Arc::clone(&self.compiled),
+            evidence_plan: Arc::clone(&self.evidence),
             time: BigRational::zero(),
+            trace: vec![initial_trace_state],
         })
     }
 }
@@ -536,7 +686,7 @@ impl DenseTrophicNetwork {
     /// Whether the dense ledger closes within the kernel's explicit tolerance.
     pub fn is_balanced(&self) -> bool {
         self.state
-            .balance_within(&material_kind(), DenseTolerance::default())
+            .balance_within(&material_kind(), trophic_dense_balance_tolerance())
     }
 
     /// Settles one simultaneous process batch atomically.
@@ -739,6 +889,131 @@ impl DenseTrophicNetworkStep {
     }
 }
 
+fn compile_evidence_plan(stock_names: &[String]) -> Result<ExactEvidencePlan, TrophicNetworkError> {
+    let kind = material_kind();
+    let stock_axes = stock_names
+        .iter()
+        .map(|name| AxisId::new(name.clone()).map_err(evidence_error))
+        .collect::<Result<Vec<_>, _>>()?;
+    let cumulative_input_axis = AxisId::new(CUMULATIVE_INPUT).map_err(evidence_error)?;
+    let cumulative_output_axis = AxisId::new(CUMULATIVE_OUTPUT).map_err(evidence_error)?;
+    let signature = ConservationSignature::new(
+        stock_axes
+            .iter()
+            .chain([&cumulative_input_axis, &cumulative_output_axis])
+            .cloned()
+            .map(|axis| (axis, kind.clone())),
+    )
+    .map_err(evidence_error)?;
+
+    let mut total_coefficients = stock_axes
+        .iter()
+        .cloned()
+        .map(|axis| (axis, BigRational::one()))
+        .collect::<Vec<_>>();
+    total_coefficients.push((cumulative_input_axis.clone(), -BigRational::one()));
+    total_coefficients.push((cumulative_output_axis.clone(), BigRational::one()));
+    let invariant = BalanceLaw::new(kind.clone(), total_coefficients, Provenance::Declared)
+        .map_err(evidence_error)?;
+    let mut sentences = vec![NamedSentence {
+        law: TrophicLaw::MaterialInvariant,
+        sentence: GradedLaw::new(invariant, Grade::Invariant),
+    }];
+
+    for (name, axis) in stock_names.iter().zip(&stock_axes) {
+        let form = BalanceLaw::new(
+            kind.clone(),
+            [(axis.clone(), BigRational::one())],
+            Provenance::Declared,
+        )
+        .map_err(evidence_error)?;
+        sentences.push(NamedSentence {
+            law: TrophicLaw::StockNonnegative(name.clone()),
+            sentence: GradedLaw::new(form, Grade::Nonnegative),
+        });
+    }
+    for (law, axis) in [
+        (
+            TrophicLaw::CumulativeInputNondecreasing,
+            cumulative_input_axis.clone(),
+        ),
+        (
+            TrophicLaw::CumulativeOutputNondecreasing,
+            cumulative_output_axis.clone(),
+        ),
+    ] {
+        let form = BalanceLaw::new(
+            kind.clone(),
+            [(axis, BigRational::one())],
+            Provenance::Declared,
+        )
+        .map_err(evidence_error)?;
+        sentences.push(NamedSentence {
+            law,
+            sentence: GradedLaw::new(form, Grade::Nondecreasing),
+        });
+    }
+
+    Ok(ExactEvidencePlan {
+        signature,
+        stock_axes,
+        cumulative_input_axis,
+        cumulative_output_axis,
+        sentences,
+    })
+}
+
+fn exact_trace_state(
+    plan: &ExactEvidencePlan,
+    state: &ExactState,
+) -> Result<TraceState, TrophicNetworkError> {
+    let mut values = plan
+        .stock_axes
+        .iter()
+        .cloned()
+        .zip(state.amounts().iter().cloned())
+        .collect::<Vec<_>>();
+    values.push((
+        plan.cumulative_input_axis.clone(),
+        state.inputs(&material_kind()),
+    ));
+    values.push((
+        plan.cumulative_output_axis.clone(),
+        state.outputs(&material_kind()),
+    ));
+    TraceState::new(values).map_err(evidence_error)
+}
+
+fn evaluate_evidence(
+    plan: &ExactEvidencePlan,
+    states: &[TraceState],
+) -> Result<ExactTrophicNetworkEvidence, TrophicNetworkError> {
+    let model = TraceModel::new(plan.signature.clone(), states.to_vec()).map_err(evidence_error)?;
+    let mut laws = Vec::with_capacity(plan.sentences.len());
+    for named in &plan.sentences {
+        let institution_satisfied = ConservationInstitution
+            .satisfies(&plan.signature, &model, &named.sentence)
+            .map_err(evidence_error)?;
+        let verdict = check_law(&named.sentence, model.states()).map_err(evidence_error)?;
+        let verdict_satisfied = matches!(verdict, LawVerdict::Satisfied(_));
+        if institution_satisfied != verdict_satisfied {
+            return Err(TrophicNetworkError::Evidence(
+                "institution satisfaction disagreed with its typed trace verdict".to_owned(),
+            ));
+        }
+        laws.push(TrophicLawEvidence {
+            law: named.law.clone(),
+            grade: named.sentence.grade(),
+            verdict,
+        });
+    }
+    Ok(ExactTrophicNetworkEvidence { laws })
+}
+
+fn evidence_error(error: impl fmt::Display) -> TrophicNetworkError {
+    TrophicNetworkError::Evidence(error.to_string())
+}
+
 fn compile_network<N: Clone>(
     spec: TrophicNetworkSpec<N>,
 ) -> Result<CompiledNetwork<N>, TrophicNetworkError> {
@@ -904,7 +1179,12 @@ fn compile_network<N: Clone>(
 }
 
 fn validate_structure<N>(spec: &TrophicNetworkSpec<N>) -> Result<(), TrophicNetworkError> {
-    let mut names = BTreeSet::from([NUTRIENT.to_owned(), DETRITUS.to_owned()]);
+    let mut names = BTreeSet::from([
+        NUTRIENT.to_owned(),
+        DETRITUS.to_owned(),
+        CUMULATIVE_INPUT.to_owned(),
+        CUMULATIVE_OUTPUT.to_owned(),
+    ]);
     for name in spec
         .producers
         .iter()
@@ -1265,4 +1545,83 @@ fn ensure_dense_positive(value: f64) -> Result<(), TrophicNetworkError> {
 
 fn material_kind() -> KindId {
     KindId::new(MATERIAL).expect("literal kind identifier is nonblank")
+}
+
+#[cfg(test)]
+mod evidence_tests {
+    use super::*;
+    use conservation_trace::LawViolation;
+
+    fn integer(value: i64) -> BigRational {
+        BigRational::from_integer(value.into())
+    }
+
+    fn state(
+        plan: &ExactEvidencePlan,
+        stock: i64,
+        cumulative_input: i64,
+        cumulative_output: i64,
+    ) -> TraceState {
+        TraceState::new([
+            (plan.stock_axes[0].clone(), integer(stock)),
+            (
+                plan.cumulative_input_axis.clone(),
+                integer(cumulative_input),
+            ),
+            (
+                plan.cumulative_output_axis.clone(),
+                integer(cumulative_output),
+            ),
+        ])
+        .unwrap()
+    }
+
+    #[test]
+    fn compiled_stock_sentence_exposes_negative_stock_hidden_by_invariant_total() {
+        let plan = compile_evidence_plan(&["nutrient".to_owned()]).unwrap();
+        let evidence =
+            evaluate_evidence(&plan, &[state(&plan, 1, 0, 0), state(&plan, -1, 0, 2)]).unwrap();
+
+        assert!(
+            evidence
+                .laws()
+                .iter()
+                .find(|law| law.law() == &TrophicLaw::MaterialInvariant)
+                .unwrap()
+                .is_satisfied()
+        );
+        assert!(matches!(
+            evidence
+                .laws()
+                .iter()
+                .find(|law| {
+                    law.law() == &TrophicLaw::StockNonnegative("nutrient".to_owned())
+                })
+                .unwrap()
+                .verdict(),
+            LawVerdict::Violated(LawViolation::Negative { state_index: 1, observed })
+                if observed == &integer(-1)
+        ));
+    }
+
+    #[test]
+    fn compiled_boundary_sentence_reports_first_decreasing_ledger_state() {
+        let plan = compile_evidence_plan(&["nutrient".to_owned()]).unwrap();
+        let evidence =
+            evaluate_evidence(&plan, &[state(&plan, 1, 1, 0), state(&plan, 0, 0, 0)]).unwrap();
+
+        assert!(matches!(
+            evidence
+                .laws()
+                .iter()
+                .find(|law| law.law() == &TrophicLaw::CumulativeInputNondecreasing)
+                .unwrap()
+                .verdict(),
+            LawVerdict::Violated(LawViolation::Decrease {
+                state_index: 1,
+                previous,
+                observed,
+            }) if previous == &integer(1) && observed == &integer(0)
+        ));
+    }
 }

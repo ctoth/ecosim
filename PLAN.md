@@ -236,26 +236,26 @@ Similar vocabulary alone is not sufficient.
 
 ### Exact evidence foundation
 
-- [ ] Define stable trophic trace axes, including cumulative input and output.
-- [ ] Record the initial exact trace state.
-- [ ] Append one trace state after each successful exact step.
-- [ ] Prove rejected steps leave the trace unchanged.
-- [ ] Compile the conservation signature once per exact plan.
-- [ ] Compile the invariant total-material sentence.
-- [ ] Compile one nonnegative sentence per physical stock.
-- [ ] Compile nondecreasing input and output sentences.
-- [ ] Return named typed verdicts for the complete sentence suite.
+- [x] Define stable trophic trace axes, including cumulative input and output.
+- [x] Record the initial exact trace state.
+- [x] Append one trace state after each successful exact step.
+- [x] Prove rejected steps leave the trace unchanged.
+- [x] Compile the conservation signature once per exact plan.
+- [x] Compile the invariant total-material sentence.
+- [x] Compile one nonnegative sentence per physical stock.
+- [x] Compile nondecreasing input and output sentences.
+- [x] Return named typed verdicts for the complete sentence suite.
 
 ### Verification
 
-- [ ] Test invariant success alongside a deliberately negative stock failure.
-- [ ] Test first-offense reporting for a decreasing cumulative ledger.
-- [ ] Test actual settled output under source-limited harvest.
-- [ ] Add generated exact-run satisfaction properties.
-- [ ] Add generated rejected-step atomicity properties.
-- [ ] Add declaration-order and independent-run properties.
-- [ ] Retain dense batch/stateful parity properties.
-- [ ] Declare and test the dense residual tolerance.
+- [x] Test invariant success alongside a deliberately negative stock failure.
+- [x] Test first-offense reporting for a decreasing cumulative ledger.
+- [x] Test actual settled output under source-limited harvest.
+- [x] Add generated exact-run satisfaction properties.
+- [x] Add generated rejected-step atomicity properties.
+- [x] Add declaration-order and independent-run properties.
+- [x] Retain dense batch/stateful parity properties.
+- [x] Declare and test the dense residual tolerance.
 
 ### Ecosystem behavior
 

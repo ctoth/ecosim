@@ -94,6 +94,15 @@ shape `(batch, steps, consumers)`, and the returned trajectory has shape
 array-axis order. Inputs are validated and copied before native execution
 releases Python's GIL; the ensemble loop uses the no-report settlement path.
 
+Every exact plan also compiles an institutional signature and a named graded
+sentence suite. Exact runs record the initial state and each successfully
+committed post-step state over physical stocks plus settled cumulative input
+and output. `ExactTrophicNetwork::evidence` returns typed verdicts for invariant
+total material, nonnegative physical stocks, and nondecreasing boundary
+ledgers. Rejected steps append no trace state. Dense runs remain numerical: the
+declared balance diagnostic uses absolute and relative tolerances of
+`256 * f64::EPSILON` and is not represented as exact institutional evidence.
+
 ## Paper benchmarks
 
 `ecosim_core::paper_models::almonacid_2020` independently implements the NPZD

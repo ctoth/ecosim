@@ -669,6 +669,7 @@ committed, available from their configured remotes, and migrated together.
 - [x] Verify that no PDF or PNG artifact is tracked or introduced into history.
 - [x] Run all Rust, Python, property, type, package, and diff gates.
 - [x] Commit only scoped project artifacts; preserve append-only notes uncommitted.
+- [ ] Replace temporary sibling paths with committed remote revisions and verify clean-source builds.
 
 ## Definition of done
 

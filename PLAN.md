@@ -31,8 +31,9 @@ operational guarantees, and numerical evidence policies distinct.
 
 The work is ordered only by these project criteria:
 
-- a law must be expressible as a Goguen-style sentence with an inspectable
-  satisfaction witness or first-offense violation;
+- a law must be expressible as a Goguen-style sentence with defined
+  satisfaction, and this project's checker must return an inspectable witness
+  or first-offense violation;
 - it must add correctness beyond the existing invariant, nonnegative, and
   nondecreasing sentences;
 - it must be testable from the current exact runtime or a principled extension
@@ -103,7 +104,8 @@ Lagrangian, symmetry, equations of motion, and momentum map.
 - stock–flow signatures;
 - conservative, kind-preserving symbol renamings;
 - the stock–flow sentence sum type;
-- stock–flow models and reducts;
+- stock–flow models and reducts as an explicitly documented discrete-model
+  specialization of the category-valued definition;
 - sentence translation;
 - satisfaction delegated to the conservation checkers;
 - executable identity, composition, and satisfaction-condition laws.
@@ -125,9 +127,10 @@ checking with conservation satisfaction.
 
 ### New shared layer, not a replacement
 
-The existing graded conservation institution remains valid for state-only
-traces. Introduce a stock–flow layer rather than making every `GradedLaw`
-variant understand processes and boundaries.
+Preserve the existing graded conservation layer for state-only traces, subject
+to a fresh audit of its signature category, translation and reduct
+functoriality, and satisfaction condition. Introduce a stock–flow layer rather
+than making every `GradedLaw` variant understand processes and boundaries.
 
 This shared layer is not an extraction of ecosim's experiment API: the
 transition equation, typed flow carrier, and satisfaction condition are the
@@ -148,7 +151,7 @@ TransitionRecord
     before: TraceState
     after: TraceState
     settled_flows: FlowId -> exact amount
-    settled_boundaries: BoundaryId -> exact signed amount
+    settled_boundaries: BoundaryId -> exact nonnegative magnitude
 
 StockFlowSentence
     TransitionEquation
@@ -231,13 +234,15 @@ Keep two artifacts separate:
 - a satisfaction witness proves that one concrete finite model satisfies one
   sentence.
 
-`Provenance` remains origin metadata. Only a constructor that recomputes and
-checks the required exact matrix identity may create a derivation certificate.
+As a project evidence policy, `Provenance` remains origin metadata. Only a
+constructor that recomputes and checks the required exact matrix identity may
+create a derivation certificate.
 Callers cannot promote declared metadata into proof evidence.
 
 ### Signature morphisms
 
-The first stock–flow morphisms are total bijective renamings of:
+For this proposed bijective-renaming fragment, the first stock–flow morphisms
+are total bijective renamings of:
 
 - stock axes;
 - internal-flow symbols;
@@ -274,8 +279,8 @@ Deliverables:
   sentences;
 - exact well-formedness rules;
 - the satisfaction definition for each first-slice sentence;
-- the algebraic proof that the transition equation plus `w^T S = 0` entails
-  open balance;
+- the algebraic proof that the project's discrete open transition equation plus
+  Mahdi et al.'s structural-linear premise `w^T S = 0` entails open balance;
 - a written satisfaction-condition argument for conservative renamings;
 - explicit separation of semantic violation, malformed model, derivation
   certificate, and runtime failure.
@@ -283,7 +288,8 @@ Deliverables:
 Acceptance criteria:
 
 - every public term has one role and one owner repository;
-- signed boundary-flow conventions are unambiguous;
+- nonnegative boundary magnitudes and matrix-encoded directions are
+  unambiguous;
 - zero-transition and one-state behavior is non-vacuous and specified;
 - no claim invokes Noether's variational theorem;
 - paper-derived claims cite the actual source passage or equation used.
@@ -297,7 +303,8 @@ Acceptance criteria:
 
 - stock, flow, and boundary identifiers are nonblank and deterministic;
 - matrices are total over their declared symbol axes and reject duplicates;
-- all matrix coefficients and flow amounts are exact rationals;
+- as a project representation policy, all matrix coefficients and flow amounts
+  are exact rationals so annihilation and satisfaction can be checked exactly;
 - nonzero matrix effects connect only kind-compatible stocks and flows;
 - transition records reject missing, extra, or wrong-kind values;
 - consecutive records form a continuous trace;
@@ -345,26 +352,32 @@ Acceptance criteria:
 - model reduct is contravariantly functorial on generated examples;
 - the satisfaction condition holds in both truth directions for every
   sentence family;
-- a renamed ecosystem and a renamed economic accounting fixture translate one
+- as an illustrative fixture in addition to the generated categorical-law
+  tests, renamed ecosystem and economic accounting models translate one
   literally shared source sentence rather than independently rebuilding
   analogous laws.
 
 ### Phase 4 — Checked balance entailments
 
-Turn exact nullspace results into sealed derivation certificates and use them
-to derive open-balance sentences from transition structure.
+Turn exact structural-linear nullspace results into sealed derivation
+certificates and use the project's discrete open-system extension to derive
+open-balance sentences from transition structure.
 
 Acceptance criteria:
 
 - certificate construction recomputes `w^T S` exactly;
 - a non-null vector cannot receive a certificate;
-- an empty or fully cancelled law cannot receive a certificate;
-- certificate origin distinguishes stoichiometric and incidence derivations;
+- an effective zero coefficient vector cannot receive a certificate because it
+  does not define a non-locally-constant first integral, and empty or fully
+  cancelled inputs are rejected as validation cases;
+- a derived basis is independent and has size `rows(S) - rank(S)`;
+- project provenance distinguishes Mahdi-style stoichiometric derivations from
+  separately sourced incidence derivations;
 - derivation evidence is not copied from caller-selected provenance metadata;
-- generated models satisfying the transition equation also satisfy every
-  certified derived open-balance sentence;
-- deliberately corrupted models may falsify transition and balance sentences
-  without becoming structurally malformed;
+- generated models satisfying the project's discrete transition equation also
+  satisfy every certified derived open-balance sentence;
+- as a project semantic contract, deliberately corrupted models may falsify
+  transition and balance sentences without becoming structurally malformed;
 - existing graded invariant evidence remains available as the derived trace
   projection.
 
@@ -560,13 +573,13 @@ committed, available from their configured remotes, and migrated together.
 
 ### Formal foundation
 
-- [ ] Define stock, flow, process-bundle, boundary, and kind symbol tables.
-- [ ] Specify exact matrix and signed boundary conventions.
-- [ ] Specify transition, flow-constraint, and boundary sentences.
-- [ ] Specify positive witnesses, violations, and structural errors.
-- [ ] Write the nullspace-to-open-balance entailment proof.
-- [ ] Write the conservative-renaming satisfaction-condition argument.
-- [ ] Verify mathematical claims against the cited sources.
+- [x] Define stock, flow, process-bundle, boundary, and kind symbol tables.
+- [x] Specify exact matrices, nonnegative boundary magnitudes, and encoded directions.
+- [x] Specify transition, flow-constraint, and boundary sentences.
+- [x] Specify positive witnesses, violations, and structural errors.
+- [x] Write the project open-system extension of the structural-nullspace entailment proof.
+- [x] Write the conservative-renaming satisfaction-condition argument.
+- [x] Verify mathematical claims against the cited sources.
 
 ### Conservation carrier
 
@@ -577,6 +590,7 @@ committed, available from their configured remotes, and migrated together.
 - [ ] Add linear flow-constraint checking and typed verdicts.
 - [ ] Add boundary-correspondence checking and typed verdicts.
 - [ ] Seal checked nullspace derivation certificates.
+- [ ] Prove derived basis independence and `rows(S) - rank(S)` size.
 - [ ] Derive open-balance sentences from valid certificates.
 - [ ] Add generated carrier, checker, and certificate tests.
 

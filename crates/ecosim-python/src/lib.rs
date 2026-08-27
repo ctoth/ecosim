@@ -1,6 +1,6 @@
 use ecosim_core::{
-    BalanceReport, Compartment, DenseFoodWeb, DenseFoodWebStep, FoodWeb, FoodWebError, FoodWebStep,
-    World, WorldError, energy_law, integer_amount,
+    BalanceReport, Compartment, DenseFoodWeb, DenseFoodWebParameters, DenseFoodWebStep, FoodWeb,
+    FoodWebError, FoodWebParameters, FoodWebStep, World, WorldError, energy_law, integer_amount,
 };
 use num_bigint::BigInt;
 use num_rational::BigRational;
@@ -162,6 +162,93 @@ struct PyFoodWebStep {
     inner: FoodWebStep,
 }
 
+#[pyclass(name = "FoodWebParameters", frozen)]
+struct PyFoodWebParameters {
+    exact: FoodWebParameters,
+    dense: DenseFoodWebParameters,
+}
+
+#[pymethods]
+impl PyFoodWebParameters {
+    #[new]
+    #[pyo3(signature = (
+        max_growth=0.5,
+        nutrient_half_saturation=10.0,
+        max_grazing=0.4,
+        producer_half_saturation=10.0,
+        producer_mortality=0.05,
+        consumer_mortality=0.04,
+        decomposition=0.1,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        max_growth: f64,
+        nutrient_half_saturation: f64,
+        max_grazing: f64,
+        producer_half_saturation: f64,
+        producer_mortality: f64,
+        consumer_mortality: f64,
+        decomposition: f64,
+    ) -> PyResult<Self> {
+        let dense = DenseFoodWebParameters::new(
+            max_growth,
+            nutrient_half_saturation,
+            max_grazing,
+            producer_half_saturation,
+            producer_mortality,
+            consumer_mortality,
+            decomposition,
+        )
+        .map_err(invalid_food_web)?;
+        let exact = FoodWebParameters::new(
+            rational(max_growth)?,
+            rational(nutrient_half_saturation)?,
+            rational(max_grazing)?,
+            rational(producer_half_saturation)?,
+            rational(producer_mortality)?,
+            rational(consumer_mortality)?,
+            rational(decomposition)?,
+        )
+        .map_err(invalid_food_web)?;
+        Ok(Self { exact, dense })
+    }
+
+    #[getter]
+    fn max_growth(&self) -> f64 {
+        self.dense.max_growth()
+    }
+
+    #[getter]
+    fn nutrient_half_saturation(&self) -> f64 {
+        self.dense.nutrient_half_saturation()
+    }
+
+    #[getter]
+    fn max_grazing(&self) -> f64 {
+        self.dense.max_grazing()
+    }
+
+    #[getter]
+    fn producer_half_saturation(&self) -> f64 {
+        self.dense.producer_half_saturation()
+    }
+
+    #[getter]
+    fn producer_mortality(&self) -> f64 {
+        self.dense.producer_mortality()
+    }
+
+    #[getter]
+    fn consumer_mortality(&self) -> f64 {
+        self.dense.consumer_mortality()
+    }
+
+    #[getter]
+    fn decomposition(&self) -> f64 {
+        self.dense.decomposition()
+    }
+}
+
 #[pymethods]
 impl PyFoodWebStep {
     #[getter]
@@ -182,13 +269,24 @@ struct PyFoodWeb {
 #[pymethods]
 impl PyFoodWeb {
     #[new]
-    fn new(nutrient: f64, producer: f64, consumer: f64, detritus: f64) -> PyResult<Self> {
+    #[pyo3(signature = (nutrient, producer, consumer, detritus, parameters=None))]
+    fn new(
+        nutrient: f64,
+        producer: f64,
+        consumer: f64,
+        detritus: f64,
+        parameters: Option<PyRef<'_, PyFoodWebParameters>>,
+    ) -> PyResult<Self> {
+        let parameters = parameters
+            .map(|parameters| parameters.exact.clone())
+            .unwrap_or_default();
         Ok(Self {
-            inner: FoodWeb::with_defaults(
+            inner: FoodWeb::new(
                 rational(nutrient)?,
                 rational(producer)?,
                 rational(consumer)?,
                 rational(detritus)?,
+                parameters,
             )
             .map_err(invalid_food_web)?,
         })
@@ -279,9 +377,19 @@ struct PyDenseFoodWeb {
 #[pymethods]
 impl PyDenseFoodWeb {
     #[new]
-    fn new(nutrient: f64, producer: f64, consumer: f64, detritus: f64) -> PyResult<Self> {
+    #[pyo3(signature = (nutrient, producer, consumer, detritus, parameters=None))]
+    fn new(
+        nutrient: f64,
+        producer: f64,
+        consumer: f64,
+        detritus: f64,
+        parameters: Option<PyRef<'_, PyFoodWebParameters>>,
+    ) -> PyResult<Self> {
+        let parameters = parameters
+            .map(|parameters| parameters.dense)
+            .unwrap_or_default();
         Ok(Self {
-            inner: DenseFoodWeb::with_defaults(nutrient, producer, consumer, detritus)
+            inner: DenseFoodWeb::new(nutrient, producer, consumer, detritus, parameters)
                 .map_err(invalid_food_web)?,
         })
     }
@@ -356,7 +464,14 @@ impl PyDenseFoodWeb {
 }
 
 #[pyfunction]
-#[pyo3(signature = (initial_states, steps, elapsed, nutrient_inputs=None, harvests=None))]
+#[pyo3(signature = (
+    initial_states,
+    steps,
+    elapsed,
+    nutrient_inputs=None,
+    harvests=None,
+    parameters=None,
+))]
 fn simulate_food_web<'py>(
     py: Python<'py>,
     initial_states: PyReadonlyArray2<'py, f64>,
@@ -364,6 +479,7 @@ fn simulate_food_web<'py>(
     elapsed: f64,
     nutrient_inputs: Option<PyReadonlyArray2<'py, f64>>,
     harvests: Option<PyReadonlyArray2<'py, f64>>,
+    parameters: Option<PyRef<'py, PyFoodWebParameters>>,
 ) -> PyResult<Bound<'py, PyArray3<f64>>> {
     if !elapsed.is_finite() || elapsed < 0.0 {
         return Err(PyValueError::new_err(
@@ -412,6 +528,9 @@ fn simulate_food_web<'py>(
     let nutrient_inputs =
         nutrient_inputs.map(|values| values.as_array().iter().copied().collect::<Vec<_>>());
     let harvests = harvests.map(|values| values.as_array().iter().copied().collect::<Vec<_>>());
+    let parameters = parameters
+        .map(|parameters| parameters.dense)
+        .unwrap_or_default();
     let output = py
         .detach(move || {
             compute_food_web_trajectory(
@@ -423,6 +542,7 @@ fn simulate_food_web<'py>(
                 nutrient_inputs.as_deref(),
                 harvests.as_deref(),
                 output_elements,
+                parameters,
             )
         })
         .map_err(PyValueError::new_err)?;
@@ -441,6 +561,7 @@ fn compute_food_web_trajectory(
     nutrient_inputs: Option<&[f64]>,
     harvests: Option<&[f64]>,
     output_elements: usize,
+    parameters: DenseFoodWebParameters,
 ) -> Result<Vec<f64>, String> {
     let mut trajectory = Vec::new();
     trajectory
@@ -450,11 +571,12 @@ fn compute_food_web_trajectory(
 
     for batch_index in 0..batch {
         let initial_offset = batch_index * 4;
-        let mut web = DenseFoodWeb::with_defaults(
+        let mut web = DenseFoodWeb::new(
             initial[initial_offset],
             initial[initial_offset + 1],
             initial[initial_offset + 2],
             initial[initial_offset + 3],
+            parameters,
         )
         .map_err(|error| error.to_string())?;
         let trajectory_offset = batch_index * time_points * 4;
@@ -532,6 +654,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyBalanceReport>()?;
     module.add_class::<PyWorld>()?;
     module.add_class::<PyFoodWebStep>()?;
+    module.add_class::<PyFoodWebParameters>()?;
     module.add_class::<PyFoodWeb>()?;
     module.add_class::<PyDenseFoodWebStep>()?;
     module.add_class::<PyDenseFoodWeb>()?;

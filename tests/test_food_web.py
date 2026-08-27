@@ -9,11 +9,15 @@ from hypothesis import given
 from hypothesis import settings
 from hypothesis import strategies as st
 
-from ecosim import DenseFoodWeb, FoodWeb, simulate_food_web
+from ecosim import DenseFoodWeb, FoodWeb, FoodWebParameters, simulate_food_web
 
 
 FINITE_STOCK = st.integers(min_value=0, max_value=10_000).map(float)
 FINITE_DURATION = st.integers(min_value=0, max_value=40).map(lambda value: value / 4)
+FINITE_RATE = st.integers(min_value=0, max_value=40).map(lambda value: value / 20)
+POSITIVE_HALF_SATURATION = st.integers(min_value=1, max_value=400).map(
+    lambda value: value / 4
+)
 
 
 def test_trophic_processes_and_recycling_are_observable() -> None:
@@ -35,6 +39,125 @@ def test_trophic_processes_and_recycling_are_observable() -> None:
     assert second.applied("decomposition") > 0.0
     assert web.balanced
     assert web.balance_residual == 0.0
+
+
+def test_custom_parameters_control_named_ecological_processes() -> None:
+    parameters = FoodWebParameters(max_growth=0.0, max_grazing=0.0)
+    exact = FoodWeb(100.0, 20.0, 5.0, 0.0, parameters=parameters)
+    dense = DenseFoodWeb(100.0, 20.0, 5.0, 0.0, parameters=parameters)
+
+    exact_step = exact.step(1.0)
+    dense_step = dense.step(1.0)
+
+    for step in (exact_step, dense_step):
+        assert step.applied("producer-growth") == 0.0
+        assert step.applied("grazing") == 0.0
+        assert step.applied("producer-mortality") > 0.0
+        assert step.applied("consumer-mortality") > 0.0
+    assert exact.balanced
+    assert dense.balanced
+
+
+def test_custom_parameters_are_shared_by_object_and_batch_paths() -> None:
+    parameters = FoodWebParameters(
+        max_growth=0.25,
+        nutrient_half_saturation=4.0,
+        max_grazing=0.1,
+        producer_half_saturation=3.0,
+        producer_mortality=0.02,
+        consumer_mortality=0.03,
+        decomposition=0.2,
+    )
+    initial = np.array([[100.0, 20.0, 5.0, 2.0]], dtype=np.float64)
+    batched = simulate_food_web(initial, 4, 0.25, parameters=parameters)
+    web = DenseFoodWeb(*initial[0], parameters=parameters)
+    expected = [initial[0].copy()]
+    for _ in range(4):
+        web.step(0.25)
+        expected.append(np.array([web.nutrient, web.producer, web.consumer, web.detritus]))
+
+    np.testing.assert_array_equal(batched[0], np.asarray(expected))
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"max_growth": -1.0},
+        {"nutrient_half_saturation": 0.0},
+        {"producer_half_saturation": math.inf},
+    ],
+)
+def test_invalid_custom_parameters_are_rejected(kwargs: dict[str, float]) -> None:
+    with pytest.raises(ValueError):
+        FoodWebParameters(**kwargs)
+
+
+@given(
+    initial=st.tuples(
+        st.integers(min_value=0, max_value=100).map(float),
+        st.integers(min_value=0, max_value=100).map(float),
+        st.integers(min_value=0, max_value=100).map(float),
+        st.integers(min_value=0, max_value=100).map(float),
+    ),
+    elapsed=FINITE_DURATION,
+    nutrient_input=st.integers(min_value=0, max_value=20).map(float),
+    harvest=st.integers(min_value=0, max_value=20).map(float),
+    max_growth=FINITE_RATE,
+    nutrient_half_saturation=POSITIVE_HALF_SATURATION,
+    max_grazing=FINITE_RATE,
+    producer_half_saturation=POSITIVE_HALF_SATURATION,
+    producer_mortality=FINITE_RATE,
+    consumer_mortality=FINITE_RATE,
+    decomposition=FINITE_RATE,
+)
+@settings(max_examples=40, deadline=None)
+def test_custom_parameters_preserve_exact_dense_process_semantics(
+    initial: tuple[float, float, float, float],
+    elapsed: float,
+    nutrient_input: float,
+    harvest: float,
+    max_growth: float,
+    nutrient_half_saturation: float,
+    max_grazing: float,
+    producer_half_saturation: float,
+    producer_mortality: float,
+    consumer_mortality: float,
+    decomposition: float,
+) -> None:
+    parameters = FoodWebParameters(
+        max_growth=max_growth,
+        nutrient_half_saturation=nutrient_half_saturation,
+        max_grazing=max_grazing,
+        producer_half_saturation=producer_half_saturation,
+        producer_mortality=producer_mortality,
+        consumer_mortality=consumer_mortality,
+        decomposition=decomposition,
+    )
+    exact = FoodWeb(*initial, parameters=parameters)
+    dense = DenseFoodWeb(*initial, parameters=parameters)
+
+    exact_step = exact.step(elapsed, nutrient_input, harvest)
+    dense_step = dense.step(elapsed, nutrient_input, harvest)
+
+    for process in (
+        "nutrient-input",
+        "producer-growth",
+        "grazing",
+        "producer-mortality",
+        "consumer-mortality",
+        "decomposition",
+        "harvest",
+    ):
+        assert dense_step.applied(process) == pytest.approx(
+            exact_step.applied(process), rel=1e-12, abs=1e-12
+        )
+    assert (dense.nutrient, dense.producer, dense.consumer, dense.detritus) == pytest.approx(
+        (exact.nutrient, exact.producer, exact.consumer, exact.detritus),
+        rel=1e-12,
+        abs=1e-12,
+    )
+    assert exact.balanced
+    assert dense.balanced
 
 
 @given(

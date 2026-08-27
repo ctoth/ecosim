@@ -52,6 +52,12 @@ Optional nutrient-input and harvest arrays have shape `(batch, steps)`. Inputs
 are validated and copied before native execution releases Python's GIL; the
 inner loop uses the no-report settlement path.
 
+Python's immutable `FoodWebParameters` validates the seven process parameters
+once and can be supplied to `FoodWeb`, `DenseFoodWeb`, or `simulate_food_web`.
+The three paths therefore use the same growth, grazing, mortality, and
+decomposition semantics while supporting parameter sweeps and controlled
+perturbation experiments.
+
 ## Paper benchmarks
 
 `ecosim_core::paper_models::almonacid_2020` independently implements the NPZD

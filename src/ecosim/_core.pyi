@@ -36,8 +36,41 @@ class FoodWebStep:
     def elapsed(self) -> float: ...
     def applied(self, process: str) -> float: ...
 
+class FoodWebParameters:
+    def __init__(
+        self,
+        max_growth: float = 0.5,
+        nutrient_half_saturation: float = 10.0,
+        max_grazing: float = 0.4,
+        producer_half_saturation: float = 10.0,
+        producer_mortality: float = 0.05,
+        consumer_mortality: float = 0.04,
+        decomposition: float = 0.1,
+    ) -> None: ...
+    @property
+    def max_growth(self) -> float: ...
+    @property
+    def nutrient_half_saturation(self) -> float: ...
+    @property
+    def max_grazing(self) -> float: ...
+    @property
+    def producer_half_saturation(self) -> float: ...
+    @property
+    def producer_mortality(self) -> float: ...
+    @property
+    def consumer_mortality(self) -> float: ...
+    @property
+    def decomposition(self) -> float: ...
+
 class FoodWeb:
-    def __init__(self, nutrient: float, producer: float, consumer: float, detritus: float) -> None: ...
+    def __init__(
+        self,
+        nutrient: float,
+        producer: float,
+        consumer: float,
+        detritus: float,
+        parameters: FoodWebParameters | None = None,
+    ) -> None: ...
     @property
     def time(self) -> float: ...
     @property
@@ -69,7 +102,14 @@ class DenseFoodWebStep:
     def applied(self, process: str) -> float: ...
 
 class DenseFoodWeb:
-    def __init__(self, nutrient: float, producer: float, consumer: float, detritus: float) -> None: ...
+    def __init__(
+        self,
+        nutrient: float,
+        producer: float,
+        consumer: float,
+        detritus: float,
+        parameters: FoodWebParameters | None = None,
+    ) -> None: ...
     @property
     def time(self) -> float: ...
     @property
@@ -101,6 +141,7 @@ def simulate_food_web(
     elapsed: float,
     nutrient_inputs: NDArray[np.float64] | None = None,
     harvests: NDArray[np.float64] | None = None,
+    parameters: FoodWebParameters | None = None,
 ) -> NDArray[np.float64]: ...
 
 def energy_law_coefficients() -> dict[str, int]: ...

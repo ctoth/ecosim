@@ -644,7 +644,7 @@ impl PyTrophicNetworkPlan {
             .map(|law| {
                 (
                     trophic_law_name(law).to_owned(),
-                    law.axis_name().map(str::to_owned),
+                    law.axis_name(),
                     trophic_law_grade(law).to_owned(),
                 )
             })
@@ -659,7 +659,7 @@ impl PyTrophicNetworkPlan {
             .map(|law| {
                 (
                     trophic_law_name(law).to_owned(),
-                    law.axis_name().map(str::to_owned),
+                    law.axis_name(),
                     trophic_law_grade(law).to_owned(),
                 )
             })
@@ -759,7 +759,7 @@ impl PyTrophicNetwork {
             .map(|evidence| {
                 (
                     trophic_law_name(evidence.law()).to_owned(),
-                    evidence.law().axis_name().map(str::to_owned),
+                    evidence.law().axis_name(),
                     evidence.grade().to_string(),
                     evidence.is_satisfied(),
                 )
@@ -777,7 +777,7 @@ impl PyTrophicNetwork {
             .map(|evidence| {
                 (
                     trophic_law_name(evidence.law()).to_owned(),
-                    evidence.law().axis_name().map(str::to_owned),
+                    evidence.law().axis_name(),
                     evidence.grade().map_or_else(
                         || trophic_family_name(evidence.family()).to_owned(),
                         |grade| grade.to_string(),
@@ -914,6 +914,7 @@ fn trophic_law_name(law: &TrophicLaw) -> &'static str {
         TrophicLaw::CumulativeInputNondecreasing => "cumulative_input_nondecreasing",
         TrophicLaw::CumulativeOutputNondecreasing => "cumulative_output_nondecreasing",
         TrophicLaw::OpenMaterialBalance => "open_material_balance",
+        TrophicLaw::Tracer { law, .. } => trophic_law_name(law),
     }
 }
 
@@ -930,6 +931,7 @@ fn trophic_law_grade(law: &TrophicLaw) -> &'static str {
             "nondecreasing"
         }
         TrophicLaw::OpenMaterialBalance => "open_balance",
+        TrophicLaw::Tracer { law, .. } => trophic_law_grade(law),
     }
 }
 

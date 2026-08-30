@@ -29,6 +29,7 @@ const DETRITUS: &str = "detritus";
 const MATERIAL: &str = "material-equivalent";
 const CUMULATIVE_INPUT: &str = "cumulative_input";
 const CUMULATIVE_OUTPUT: &str = "cumulative_output";
+const KIND_SEPARATOR: char = ':';
 
 /// Absolute tolerance used for dense trophic open-balance diagnostics.
 pub const TROPHIC_DENSE_BALANCE_ABSOLUTE_TOLERANCE: f64 = 256.0 * f64::EPSILON;
@@ -142,6 +143,7 @@ pub struct TrophicNetworkSpec<N> {
     consumers: Vec<ConsumerSpec<N>>,
     feedings: Vec<FeedingSpec<N>>,
     decomposition: N,
+    tracer_kinds: Vec<String>,
 }
 
 impl<N> TrophicNetworkSpec<N> {
@@ -157,7 +159,35 @@ impl<N> TrophicNetworkSpec<N> {
             consumers,
             feedings,
             decomposition,
+            tracer_kinds: Vec::new(),
         }
+    }
+
+    /// Declares additional conserved kinds transported passively by the material flows.
+    ///
+    /// Each tracer kind gets one stock per material stock and one flow per
+    /// material flow. Tracer flows move in exact proportion to the settled
+    /// material flow and the source stock's pre-transition tracer composition,
+    /// so each kind's books close independently.
+    pub fn with_tracer_kinds(
+        producers: Vec<ProducerSpec<N>>,
+        consumers: Vec<ConsumerSpec<N>>,
+        feedings: Vec<FeedingSpec<N>>,
+        decomposition: N,
+        tracer_kinds: Vec<String>,
+    ) -> Self {
+        Self {
+            producers,
+            consumers,
+            feedings,
+            decomposition,
+            tracer_kinds,
+        }
+    }
+
+    /// Declared tracer kinds in stable compilation order.
+    pub fn tracer_kinds(&self) -> &[String] {
+        &self.tracer_kinds
     }
 
     /// Producer declarations in stable compilation order.
@@ -187,6 +217,12 @@ impl<N> TrophicNetworkSpec<N> {
 pub enum TrophicNetworkError {
     /// A user stock identifier was blank or otherwise invalid.
     InvalidStockName(String),
+    /// A tracer kind name was blank, reserved, or contained the kind separator.
+    InvalidKindName(String),
+    /// A tracer kind was declared more than once.
+    DuplicateKind(String),
+    /// A tracer input or initial state named an undeclared kind.
+    UnknownKind(String),
     /// A stock name was declared more than once or used a reserved name.
     DuplicateStock(String),
     /// A feeding edge named a stock that is not a declared consumer.
@@ -225,6 +261,9 @@ impl fmt::Display for TrophicNetworkError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidStockName(name) => write!(formatter, "invalid stock name: {name}"),
+            Self::InvalidKindName(name) => write!(formatter, "invalid tracer kind name: {name}"),
+            Self::DuplicateKind(name) => write!(formatter, "duplicate tracer kind: {name}"),
+            Self::UnknownKind(name) => write!(formatter, "unknown tracer kind: {name}"),
             Self::DuplicateStock(name) => write!(formatter, "duplicate or reserved stock: {name}"),
             Self::UnknownConsumer(name) => write!(formatter, "unknown consumer: {name}"),
             Self::UnknownResource(name) => write!(formatter, "unknown biotic resource: {name}"),
@@ -316,6 +355,40 @@ struct NetworkLayout {
     flow_count: usize,
     flow_symbols: Vec<TrophicFlow>,
     boundary_symbols: Vec<TrophicBoundary>,
+    tracer_kinds: Vec<String>,
+    tracer_kind_ids: Vec<KindId>,
+}
+
+impl NetworkLayout {
+    /// Stocks in the full compiled topology: one block per kind.
+    fn total_stock_count(&self) -> usize {
+        self.stock_names.len() * (1 + self.tracer_kinds.len())
+    }
+
+    /// Flows in the full compiled topology: one block per kind.
+    fn total_flow_count(&self) -> usize {
+        self.flow_count * (1 + self.tracer_kinds.len())
+    }
+
+    /// Zero-based tracer block for a declared kind name.
+    fn tracer_block(&self, kind: &str) -> Option<usize> {
+        self.tracer_kinds.iter().position(|name| name == kind)
+    }
+
+    /// Full-topology stock index of one tracer block's mirror of a base stock.
+    fn tracer_stock_index(&self, block: usize, base_stock: usize) -> usize {
+        self.stock_names.len() * (1 + block) + base_stock
+    }
+
+    /// Full-topology flow index of one tracer block's mirror of a base flow.
+    fn tracer_flow_index(&self, block: usize, base_flow: usize) -> usize {
+        self.flow_count * (1 + block) + base_flow
+    }
+}
+
+/// Suffixes one base identifier with a tracer kind name.
+fn tracer_name(base: &str, kind: &str) -> String {
+    format!("{base}{KIND_SEPARATOR}{kind}")
 }
 
 #[derive(Clone, Debug)]
@@ -338,6 +411,7 @@ pub(crate) struct ExactTrophicPlanIdentity {
     consumers: Vec<(String, BigRational)>,
     feedings: Vec<(String, String, BigRational, BigRational, BigRational)>,
     decomposition: BigRational,
+    tracer_kinds: Vec<String>,
 }
 
 /// Stable semantic identity of one compiled trophic flow.
@@ -437,12 +511,26 @@ impl ExactTrophicTransition {
 
     /// Exact stock vector before settlement.
     pub fn stocks_before(&self) -> &[BigRational] {
-        &self.stocks_before
+        &self.stocks_before[..self.layout.stock_names.len()]
     }
 
     /// Exact stock vector after settlement.
     pub fn stocks_after(&self) -> &[BigRational] {
-        &self.stocks_after
+        &self.stocks_after[..self.layout.stock_names.len()]
+    }
+
+    /// Exact pre-transition tracer stocks for one kind in [`Self::stock_names`] order.
+    pub fn tracer_stocks_before(&self, kind: &str) -> Option<&[BigRational]> {
+        let block = self.layout.tracer_block(kind)?;
+        let start = self.layout.tracer_stock_index(block, 0);
+        Some(&self.stocks_before[start..start + self.layout.stock_names.len()])
+    }
+
+    /// Exact post-transition tracer stocks for one kind in [`Self::stock_names`] order.
+    pub fn tracer_stocks_after(&self, kind: &str) -> Option<&[BigRational]> {
+        let block = self.layout.tracer_block(kind)?;
+        let start = self.layout.tracer_stock_index(block, 0);
+        Some(&self.stocks_after[start..start + self.layout.stock_names.len()])
     }
 
     /// Exact pre-transition stock amount by semantic name.
@@ -488,12 +576,12 @@ impl ExactTrophicTransition {
 
     /// Requested exact flow amounts in [`Self::flow_symbols`] order.
     pub fn proposed_amounts(&self) -> &[BigRational] {
-        &self.proposed
+        &self.proposed[..self.layout.flow_count]
     }
 
     /// Kernel-settled exact flow amounts in [`Self::flow_symbols`] order.
     pub fn settled_amounts(&self) -> &[BigRational] {
-        &self.settled
+        &self.settled[..self.layout.flow_count]
     }
 
     /// Requested amount for one semantic flow.
@@ -512,6 +600,27 @@ impl ExactTrophicTransition {
             .iter()
             .position(|candidate| candidate == flow)
             .and_then(|index| self.settled.get(index))
+    }
+
+    /// Requested tracer amount for one kind's mirror of a semantic flow.
+    pub fn tracer_proposed(&self, kind: &str, flow: &TrophicFlow) -> Option<&BigRational> {
+        self.tracer_flow_position(kind, flow)
+            .and_then(|index| self.proposed.get(index))
+    }
+
+    /// Kernel-settled tracer amount for one kind's mirror of a semantic flow.
+    pub fn tracer_settled(&self, kind: &str, flow: &TrophicFlow) -> Option<&BigRational> {
+        self.tracer_flow_position(kind, flow)
+            .and_then(|index| self.settled.get(index))
+    }
+
+    fn tracer_flow_position(&self, kind: &str, flow: &TrophicFlow) -> Option<usize> {
+        let block = self.layout.tracer_block(kind)?;
+        self.layout
+            .flow_symbols
+            .iter()
+            .position(|candidate| candidate == flow)
+            .map(|index| self.layout.tracer_flow_index(block, index))
     }
 
     /// Domain-neutral typed stock-flow record built from the kernel settlement report.
@@ -541,11 +650,18 @@ pub enum TrophicLaw {
     CumulativeOutputNondecreasing,
     /// Checked total material balance against all boundary ports.
     OpenMaterialBalance,
+    /// One base law transported to a declared tracer kind's mirrored block.
+    Tracer {
+        /// The declared tracer kind name.
+        kind: String,
+        /// The base-kind law this sentence mirrors.
+        law: Box<TrophicLaw>,
+    },
 }
 
 impl TrophicLaw {
     /// The single associated axis, when this sentence concerns one axis.
-    pub fn axis_name(&self) -> Option<&str> {
+    pub fn axis_name(&self) -> Option<String> {
         match self {
             Self::TransitionEquation
             | Self::FeedingPartition { .. }
@@ -553,9 +669,18 @@ impl TrophicLaw {
             | Self::HarvestCorrespondence(_)
             | Self::MaterialInvariant
             | Self::OpenMaterialBalance => None,
-            Self::StockNonnegative(name) => Some(name),
-            Self::CumulativeInputNondecreasing => Some(CUMULATIVE_INPUT),
-            Self::CumulativeOutputNondecreasing => Some(CUMULATIVE_OUTPUT),
+            Self::StockNonnegative(name) => Some(name.clone()),
+            Self::CumulativeInputNondecreasing => Some(CUMULATIVE_INPUT.to_owned()),
+            Self::CumulativeOutputNondecreasing => Some(CUMULATIVE_OUTPUT.to_owned()),
+            Self::Tracer { kind, law } => law.axis_name().map(|axis| tracer_name(&axis, kind)),
+        }
+    }
+
+    /// Wraps one base law for a tracer kind's mirrored block.
+    fn for_tracer(self, kind: &str) -> Self {
+        Self::Tracer {
+            kind: kind.to_owned(),
+            law: Box::new(self),
         }
     }
 }
@@ -748,16 +873,48 @@ impl NamedStockFlowSentence {
     }
 }
 
+/// Cumulative boundary bookkeeping for one conserved kind.
+#[derive(Clone, Debug)]
+struct CumulativeAxes {
+    kind: KindId,
+    input_axis: AxisId,
+    output_axis: AxisId,
+    input_ledger: LedgerId,
+}
+
 #[derive(Clone, Debug)]
 struct ExactEvidencePlan {
     signature: ConservationSignature,
     carrier: Arc<StockFlowCarrier>,
+    /// Every stock axis in full-topology stock order: base block, then one block per tracer kind.
     stock_axes: Vec<AxisId>,
-    cumulative_input_axis: AxisId,
-    cumulative_output_axis: AxisId,
+    /// Per-kind cumulative axes and input ledgers: material first, then tracer kinds.
+    cumulative_axes: Vec<CumulativeAxes>,
     sentences: Vec<NamedSentence>,
     stock_flow_sentences: Vec<NamedStockFlowSentence>,
-    open_balance: OpenBalance,
+    /// Per-kind certificate-derived open balances in `cumulative_axes` order.
+    open_balances: Vec<(TrophicLaw, OpenBalance)>,
+    /// Every harvest ledger and its settled full-topology flow index.
+    harvest_ledger_flows: Vec<(LedgerId, usize)>,
+}
+
+impl ExactEvidencePlan {
+    fn base_stock_count(&self) -> usize {
+        self.stock_axes.len() / self.cumulative_axes.len()
+    }
+
+    /// Stock axes of one kind block (0 is the material block).
+    fn block_stock_axes(&self, block: usize) -> &[AxisId] {
+        let base = self.base_stock_count();
+        &self.stock_axes[base * block..base * (block + 1)]
+    }
+
+    /// Kind-block index for a tracer kind name.
+    fn block_for_tracer(&self, kind: &str) -> Option<usize> {
+        self.cumulative_axes
+            .iter()
+            .position(|cumulative| cumulative.kind.as_str() == kind)
+    }
 }
 
 /// Stateful exact-arithmetic execution of a compiled trophic network.
@@ -769,7 +926,7 @@ pub struct ExactTrophicNetwork {
     time: BigRational,
     trace: Vec<TraceState>,
     transitions: Vec<ExactTrophicTransition>,
-    harvest_ledgers: BTreeMap<String, BigRational>,
+    harvest_ledgers: BTreeMap<LedgerId, BigRational>,
 }
 
 impl ExactTrophicNetwork {
@@ -802,7 +959,26 @@ impl ExactTrophicNetwork {
 
     /// Exact amounts in [`Self::stock_names`] order.
     pub fn amounts(&self) -> &[BigRational] {
-        self.state.amounts()
+        &self.state.amounts()[..self.compiled.layout.stock_names.len()]
+    }
+
+    /// Declared tracer kinds in stable compiled order.
+    pub fn tracer_kinds(&self) -> &[String] {
+        &self.compiled.layout.tracer_kinds
+    }
+
+    /// Exact tracer amounts for one kind in [`Self::stock_names`] order.
+    pub fn tracer_amounts(&self, kind: &str) -> Option<&[BigRational]> {
+        let layout = &self.compiled.layout;
+        let block = layout.tracer_block(kind)?;
+        let start = layout.tracer_stock_index(block, 0);
+        Some(&self.state.amounts()[start..start + layout.stock_names.len()])
+    }
+
+    /// Exact tracer stock amount by kind and stock name.
+    pub fn tracer_stock(&self, kind: &str, name: &str) -> Option<&BigRational> {
+        let index = *self.compiled.layout.stock_indices.get(name)?;
+        self.tracer_amounts(kind)?.get(index)
     }
 
     /// Exact cumulative boundary input.
@@ -823,6 +999,29 @@ impl ExactTrophicNetwork {
     /// Whether the exact open-system ledger closes.
     pub fn is_balanced(&self) -> bool {
         self.balance_residual().is_zero()
+    }
+
+    /// Exact cumulative tracer boundary input for one declared kind.
+    pub fn tracer_inputs(&self, kind: &str) -> Option<BigRational> {
+        self.tracer_kind_id(kind)
+            .map(|kind| self.state.inputs(kind))
+    }
+
+    /// Exact cumulative tracer boundary output for one declared kind.
+    pub fn tracer_outputs(&self, kind: &str) -> Option<BigRational> {
+        self.tracer_kind_id(kind)
+            .map(|kind| self.state.outputs(kind))
+    }
+
+    /// Exact open-system residual for one declared tracer kind.
+    pub fn tracer_balance_residual(&self, kind: &str) -> Option<BigRational> {
+        self.tracer_kind_id(kind)
+            .map(|kind| self.state.balance_residual(kind))
+    }
+
+    fn tracer_kind_id(&self, kind: &str) -> Option<&KindId> {
+        let block = self.compiled.layout.tracer_block(kind)?;
+        self.compiled.layout.tracer_kind_ids.get(block)
     }
 
     /// Exact trace states, beginning with the initial state.
@@ -892,6 +1091,7 @@ impl ExactTrophicNetwork {
                 })
                 .collect(),
             decomposition: self.compiled.decomposition.clone(),
+            tracer_kinds: self.compiled.layout.tracer_kinds.clone(),
         }
     }
 
@@ -902,32 +1102,56 @@ impl ExactTrophicNetwork {
         nutrient_input: BigRational,
         harvests: BTreeMap<String, BigRational>,
     ) -> Result<ExactTrophicNetworkStep, TrophicNetworkError> {
+        self.step_with_tracer_inputs(elapsed, nutrient_input, BTreeMap::new(), harvests)
+    }
+
+    /// Settles one step with explicit per-kind tracer boundary inputs.
+    ///
+    /// Tracer internal flows and harvests need no forcing: they follow the
+    /// settled material flows in exact proportion to each source stock's
+    /// pre-transition tracer composition.
+    pub fn step_with_tracer_inputs(
+        &mut self,
+        elapsed: BigRational,
+        nutrient_input: BigRational,
+        tracer_inputs: BTreeMap<String, BigRational>,
+        harvests: BTreeMap<String, BigRational>,
+    ) -> Result<ExactTrophicNetworkStep, TrophicNetworkError> {
         ensure_exact_nonnegative(&elapsed)?;
         ensure_exact_nonnegative(&nutrient_input)?;
+        for (kind, amount) in &tracer_inputs {
+            if self.compiled.layout.tracer_block(kind).is_none() {
+                return Err(TrophicNetworkError::UnknownKind(kind.clone()));
+            }
+            ensure_exact_nonnegative(amount)?;
+        }
         validate_exact_harvests(&self.compiled, &harvests)?;
         let requested = exact_requests(
             &self.compiled,
             self.state.amounts(),
             &elapsed,
             nutrient_input,
+            &tracer_inputs,
             &harvests,
         );
         let time_before = self.time.clone();
         let stocks_before = self.state.amounts().to_vec();
         let inputs_before = self.inputs();
         let outputs_before = self.outputs();
+        let input_ledgers_before = exact_input_ledger_amounts(&self.evidence_plan, &self.state);
         let harvest_ledgers_before = self.harvest_ledgers.clone();
         let mut next_state = self.state.clone();
         let settlement = next_state.settle(&requested)?;
         let mut harvest_ledgers_after = harvest_ledgers_before.clone();
-        for (consumer, flow) in &self.compiled.layout.harvest_flows {
+        for (ledger, flow) in &self.evidence_plan.harvest_ledger_flows {
             *harvest_ledgers_after
-                .get_mut(consumer)
-                .expect("compiled consumer has a harvest ledger") +=
+                .get_mut(ledger)
+                .expect("every compiled harvest ledger is initialized") +=
                 settlement.applied()[*flow].clone();
         }
         let next_time = &self.time + &elapsed;
         let next_trace_state = exact_trace_state(&self.evidence_plan, &next_state)?;
+        let input_ledgers_after = exact_input_ledger_amounts(&self.evidence_plan, &next_state);
         let record = self
             .evidence_plan
             .carrier
@@ -936,13 +1160,13 @@ impl ExactTrophicNetwork {
                 next_state.amounts(),
                 &settlement,
                 exact_ledger_amounts(
-                    &self.evidence_plan.carrier,
-                    &inputs_before,
+                    &self.evidence_plan,
+                    &input_ledgers_before,
                     &harvest_ledgers_before,
                 )?,
                 exact_ledger_amounts(
-                    &self.evidence_plan.carrier,
-                    &next_state.inputs(&material_kind()),
+                    &self.evidence_plan,
+                    &input_ledgers_after,
                     &harvest_ledgers_after,
                 )?,
             )
@@ -1013,15 +1237,22 @@ impl ExactTrophicNetworkPlan {
         &self.evidence.carrier
     }
 
-    /// Stable evidence-axis order: physical stocks, cumulative input, cumulative output.
+    /// Declared tracer kinds in stable compiled order.
+    pub fn tracer_kinds(&self) -> &[String] {
+        &self.compiled.layout.tracer_kinds
+    }
+
+    /// Stable evidence-axis order: physical stocks, then per-kind cumulative input and output.
     pub fn evidence_axis_names(&self) -> impl Iterator<Item = &str> {
         self.evidence
             .stock_axes
             .iter()
-            .chain([
-                &self.evidence.cumulative_input_axis,
-                &self.evidence.cumulative_output_axis,
-            ])
+            .chain(
+                self.evidence
+                    .cumulative_axes
+                    .iter()
+                    .flat_map(|cumulative| [&cumulative.input_axis, &cumulative.output_axis]),
+            )
             .map(AxisId::as_str)
     }
 
@@ -1047,16 +1278,39 @@ impl ExactTrophicNetworkPlan {
             .collect::<Vec<_>>();
         graded.sort();
         laws.extend(graded);
-        laws.push(TrophicLaw::OpenMaterialBalance);
+        laws.extend(
+            self.evidence
+                .open_balances
+                .iter()
+                .map(|(law, _)| law.clone()),
+        );
         laws
     }
 
-    /// Starts an independent exact run without recompiling the topology.
+    /// Starts an independent exact run with every tracer stock empty.
     pub fn start(
         &self,
         initial: BTreeMap<String, BigRational>,
     ) -> Result<ExactTrophicNetwork, TrophicNetworkError> {
-        let amounts = exact_initial(&self.compiled.layout, initial)?;
+        self.start_with_tracers(initial, BTreeMap::new())
+    }
+
+    /// Starts an independent exact run with explicit per-kind tracer stocks.
+    ///
+    /// A declared kind absent from `tracers` starts with every tracer stock
+    /// zero; a kind that is present must map every compiled stock.
+    pub fn start_with_tracers(
+        &self,
+        initial: BTreeMap<String, BigRational>,
+        tracers: BTreeMap<String, BTreeMap<String, BigRational>>,
+    ) -> Result<ExactTrophicNetwork, TrophicNetworkError> {
+        let mut amounts = exact_initial(&self.compiled.layout, initial)?;
+        amounts.extend(tracer_initial(
+            &self.compiled.layout,
+            tracers,
+            BigRational::zero(),
+            ensure_exact_nonnegative,
+        )?);
         let state = ExactState::new(Arc::clone(&self.compiled.layout.topology), amounts)?;
         let initial_trace_state = exact_trace_state(&self.evidence, &state)?;
         Ok(ExactTrophicNetwork {
@@ -1067,12 +1321,10 @@ impl ExactTrophicNetworkPlan {
             trace: vec![initial_trace_state],
             transitions: Vec::new(),
             harvest_ledgers: self
-                .compiled
-                .layout
-                .consumer_names
+                .evidence
+                .harvest_ledger_flows
                 .iter()
-                .cloned()
-                .map(|consumer| (consumer, BigRational::zero()))
+                .map(|(ledger, _)| (ledger.clone(), BigRational::zero()))
                 .collect(),
         })
     }
@@ -1201,7 +1453,49 @@ impl DenseTrophicNetwork {
 
     /// Dense amounts in [`Self::stock_names`] order.
     pub fn amounts(&self) -> &[f64] {
-        self.state.amounts()
+        &self.state.amounts()[..self.compiled.layout.stock_names.len()]
+    }
+
+    /// Declared tracer kinds in stable compiled order.
+    pub fn tracer_kinds(&self) -> &[String] {
+        &self.compiled.layout.tracer_kinds
+    }
+
+    /// Dense tracer amounts for one kind in [`Self::stock_names`] order.
+    pub fn tracer_amounts(&self, kind: &str) -> Option<&[f64]> {
+        let layout = &self.compiled.layout;
+        let block = layout.tracer_block(kind)?;
+        let start = layout.tracer_stock_index(block, 0);
+        Some(&self.state.amounts()[start..start + layout.stock_names.len()])
+    }
+
+    /// Dense tracer stock amount by kind and stock name.
+    pub fn tracer_stock(&self, kind: &str, name: &str) -> Option<f64> {
+        let index = *self.compiled.layout.stock_indices.get(name)?;
+        self.tracer_amounts(kind)?.get(index).copied()
+    }
+
+    /// Dense cumulative tracer boundary input for one declared kind.
+    pub fn tracer_inputs(&self, kind: &str) -> Option<f64> {
+        self.tracer_kind_id(kind)
+            .map(|kind| self.state.inputs(kind))
+    }
+
+    /// Dense cumulative tracer boundary output for one declared kind.
+    pub fn tracer_outputs(&self, kind: &str) -> Option<f64> {
+        self.tracer_kind_id(kind)
+            .map(|kind| self.state.outputs(kind))
+    }
+
+    /// Dense open-system residual for one declared tracer kind.
+    pub fn tracer_balance_residual(&self, kind: &str) -> Option<f64> {
+        self.tracer_kind_id(kind)
+            .map(|kind| self.state.balance_residual(kind))
+    }
+
+    fn tracer_kind_id(&self, kind: &str) -> Option<&KindId> {
+        let block = self.compiled.layout.tracer_block(kind)?;
+        self.compiled.layout.tracer_kind_ids.get(block)
     }
 
     /// Cumulative boundary input.
@@ -1232,6 +1526,24 @@ impl DenseTrophicNetwork {
         nutrient_input: f64,
         harvests: BTreeMap<String, f64>,
     ) -> Result<DenseTrophicNetworkStep, TrophicNetworkError> {
+        self.step_with_tracer_inputs(elapsed, nutrient_input, BTreeMap::new(), harvests)
+    }
+
+    /// Settles one step with explicit per-kind tracer boundary inputs.
+    pub fn step_with_tracer_inputs(
+        &mut self,
+        elapsed: f64,
+        nutrient_input: f64,
+        tracer_inputs: BTreeMap<String, f64>,
+        harvests: BTreeMap<String, f64>,
+    ) -> Result<DenseTrophicNetworkStep, TrophicNetworkError> {
+        for (kind, amount) in &tracer_inputs {
+            if self.compiled.layout.tracer_block(kind).is_none() {
+                return Err(TrophicNetworkError::UnknownKind(kind.clone()));
+            }
+            ensure_dense_values(&[*amount])?;
+            ensure_dense_nonnegative(*amount)?;
+        }
         validate_dense_harvests(&self.compiled, &harvests)?;
         let ordered = self
             .compiled
@@ -1240,7 +1552,15 @@ impl DenseTrophicNetwork {
             .iter()
             .map(|name| harvests.get(name).copied().unwrap_or(0.0))
             .collect::<Vec<_>>();
-        self.step_ordered(elapsed, nutrient_input, &ordered)
+        let (next_time, requested) =
+            self.prepare_ordered_step(elapsed, nutrient_input, &tracer_inputs, &ordered)?;
+        let settlement = self.state.settle(&requested)?;
+        self.time = next_time;
+        Ok(DenseTrophicNetworkStep {
+            layout: Arc::clone(&self.compiled.layout),
+            applied: settlement.applied().to_vec(),
+            elapsed,
+        })
     }
 
     /// Settles one step with harvests in the compiled consumer order.
@@ -1251,7 +1571,7 @@ impl DenseTrophicNetwork {
         harvests: &[f64],
     ) -> Result<DenseTrophicNetworkStep, TrophicNetworkError> {
         let (next_time, requested) =
-            self.prepare_ordered_step(elapsed, nutrient_input, harvests)?;
+            self.prepare_ordered_step(elapsed, nutrient_input, &BTreeMap::new(), harvests)?;
         let settlement = self.state.settle(&requested)?;
         self.time = next_time;
         Ok(DenseTrophicNetworkStep {
@@ -1269,7 +1589,7 @@ impl DenseTrophicNetwork {
         harvests: &[f64],
     ) -> Result<(), TrophicNetworkError> {
         let (next_time, requested) =
-            self.prepare_ordered_step(elapsed, nutrient_input, harvests)?;
+            self.prepare_ordered_step(elapsed, nutrient_input, &BTreeMap::new(), harvests)?;
         self.state.settle_discard(&requested)?;
         self.time = next_time;
         Ok(())
@@ -1279,6 +1599,7 @@ impl DenseTrophicNetwork {
         &self,
         elapsed: f64,
         nutrient_input: f64,
+        tracer_inputs: &BTreeMap<String, f64>,
         harvests: &[f64],
     ) -> Result<(f64, Vec<f64>), TrophicNetworkError> {
         ensure_dense_values(&[elapsed, nutrient_input])?;
@@ -1306,6 +1627,7 @@ impl DenseTrophicNetwork {
             self.state.amounts(),
             elapsed,
             nutrient_input,
+            tracer_inputs,
             harvests,
         );
         Ok((next_time, requested))
@@ -1337,7 +1659,7 @@ impl DenseTrophicNetworkPlan {
         &self.compiled.layout.consumer_names
     }
 
-    /// Starts an independent dense run without recompiling the topology.
+    /// Starts an independent dense run with every tracer stock empty.
     pub fn start(
         &self,
         initial: BTreeMap<String, f64>,
@@ -1346,7 +1668,29 @@ impl DenseTrophicNetworkPlan {
         self.start_ordered(amounts)
     }
 
-    /// Starts a run from amounts in [`Self::stock_names`] order.
+    /// Starts an independent dense run with explicit per-kind tracer stocks.
+    ///
+    /// A declared kind absent from `tracers` starts with every tracer stock
+    /// zero; a kind that is present must map every compiled stock.
+    pub fn start_with_tracers(
+        &self,
+        initial: BTreeMap<String, f64>,
+        tracers: BTreeMap<String, BTreeMap<String, f64>>,
+    ) -> Result<DenseTrophicNetwork, TrophicNetworkError> {
+        let mut amounts = dense_initial(&self.compiled.layout, initial)?;
+        amounts.extend(tracer_initial(
+            &self.compiled.layout,
+            tracers,
+            0.0,
+            |amount| {
+                ensure_dense_values(&[*amount])?;
+                ensure_dense_nonnegative(*amount)
+            },
+        )?);
+        self.start_full(amounts)
+    }
+
+    /// Starts a run from amounts in [`Self::stock_names`] order and empty tracers.
     pub fn start_ordered(
         &self,
         amounts: Vec<f64>,
@@ -1362,6 +1706,12 @@ impl DenseTrophicNetworkPlan {
         for amount in &amounts {
             ensure_dense_nonnegative(*amount)?;
         }
+        let mut amounts = amounts;
+        amounts.resize(self.compiled.layout.total_stock_count(), 0.0);
+        self.start_full(amounts)
+    }
+
+    fn start_full(&self, amounts: Vec<f64>) -> Result<DenseTrophicNetwork, TrophicNetworkError> {
         Ok(DenseTrophicNetwork {
             state: DenseState::new(Arc::clone(&self.compiled.layout.topology), amounts)?,
             compiled: Arc::clone(&self.compiled),
@@ -1425,56 +1775,99 @@ impl DenseTrophicNetworkStep {
     }
 }
 
+/// Suffixes one base identifier when compiling a tracer block, else keeps it.
+fn kinded_name(base: &str, tracer: Option<&str>) -> String {
+    match tracer {
+        None => base.to_owned(),
+        Some(kind) => tracer_name(base, kind),
+    }
+}
+
+/// Wraps one base law when compiling a tracer block, else keeps it.
+fn kinded_law(law: TrophicLaw, tracer: Option<&str>) -> TrophicLaw {
+    match tracer {
+        None => law,
+        Some(kind) => law.for_tracer(kind),
+    }
+}
+
 fn compile_evidence_plan(
     compiled: &CompiledNetwork<BigRational>,
 ) -> Result<ExactEvidencePlan, TrophicNetworkError> {
     let layout = &compiled.layout;
-    let kind = material_kind();
-    let stock_axes = layout
-        .stock_names
+    // Kind blocks in carrier order: the material block, then one per tracer kind.
+    let mut kinds = vec![(None::<&str>, material_kind())];
+    kinds.extend(
+        layout
+            .tracer_kinds
+            .iter()
+            .map(|name| Some(name.as_str()))
+            .zip(layout.tracer_kind_ids.iter().cloned()),
+    );
+    let base_count = layout.stock_names.len();
+
+    let mut stock_axes = Vec::with_capacity(layout.total_stock_count());
+    for (tracer, _) in &kinds {
+        for name in &layout.stock_names {
+            stock_axes.push(AxisId::new(kinded_name(name, *tracer)).map_err(evidence_error)?);
+        }
+    }
+    let stock_axis_definitions = stock_axes
         .iter()
-        .map(|name| AxisId::new(name.clone()).map_err(evidence_error))
-        .collect::<Result<Vec<_>, _>>()?;
-    let cumulative_input_axis = AxisId::new(CUMULATIVE_INPUT).map_err(evidence_error)?;
-    let cumulative_output_axis = AxisId::new(CUMULATIVE_OUTPUT).map_err(evidence_error)?;
-    let stock_axis_definitions = layout
-        .stock_names
-        .iter()
-        .zip(&stock_axes)
-        .map(|(name, axis)| StockAxisDefinition {
-            stock: StockId::new(name).expect("compiled stock names are valid"),
+        .map(|axis| StockAxisDefinition {
+            stock: StockId::new(axis.as_str()).expect("compiled stock names are valid"),
             axis: axis.clone(),
         })
         .collect::<Vec<_>>();
-    let channels = layout
-        .flow_symbols
-        .iter()
-        .map(stock_flow_channel)
-        .collect::<Result<Vec<_>, _>>()?;
-    let input_boundary = BoundaryId::new("nutrient-input").map_err(evidence_error)?;
-    let harvest_boundaries = layout
-        .boundary_symbols
-        .iter()
-        .filter_map(|boundary| match boundary {
-            TrophicBoundary::NutrientInput => None,
-            TrophicBoundary::Harvest(consumer) => {
-                Some((consumer, BoundaryId::new(format!("harvest:{consumer}"))))
-            }
-        })
-        .map(|(consumer, boundary)| Ok((consumer.clone(), boundary.map_err(evidence_error)?)))
-        .collect::<Result<Vec<_>, TrophicNetworkError>>()?;
-    let mut ledgers = vec![LedgerDefinition {
-        id: input_ledger_id()?,
-        axis: cumulative_input_axis.clone(),
-        kind: kind.clone(),
-        boundaries: vec![input_boundary],
-    }];
-    for (consumer, boundary) in harvest_boundaries {
+
+    let mut channels = Vec::with_capacity(layout.total_flow_count());
+    for (tracer, _) in &kinds {
+        for flow in &layout.flow_symbols {
+            channels.push(stock_flow_channel_for(flow, *tracer)?);
+        }
+    }
+
+    let mut cumulative_axes = Vec::with_capacity(kinds.len());
+    let mut ledgers = Vec::new();
+    let mut harvest_ledger_flows = Vec::new();
+    for (block, (tracer, kind)) in kinds.iter().enumerate() {
+        let input_name = kinded_name(CUMULATIVE_INPUT, *tracer);
+        let input_axis = AxisId::new(input_name.clone()).map_err(evidence_error)?;
+        let output_axis =
+            AxisId::new(kinded_name(CUMULATIVE_OUTPUT, *tracer)).map_err(evidence_error)?;
+        let input_ledger = LedgerId::new(input_name).map_err(evidence_error)?;
         ledgers.push(LedgerDefinition {
-            id: harvest_ledger_id(&consumer)?,
-            axis: AxisId::new(format!("cumulative_harvest:{consumer}")).map_err(evidence_error)?,
+            id: input_ledger.clone(),
+            axis: input_axis.clone(),
             kind: kind.clone(),
-            boundaries: vec![boundary],
+            boundaries: vec![
+                BoundaryId::new(kinded_name("nutrient-input", *tracer)).map_err(evidence_error)?,
+            ],
+        });
+        for (consumer, flow) in &layout.harvest_flows {
+            let ledger_name = kinded_name(&format!("cumulative_harvest:{consumer}"), *tracer);
+            let ledger = LedgerId::new(ledger_name.clone()).map_err(evidence_error)?;
+            ledgers.push(LedgerDefinition {
+                id: ledger.clone(),
+                axis: AxisId::new(ledger_name).map_err(evidence_error)?,
+                kind: kind.clone(),
+                boundaries: vec![
+                    BoundaryId::new(kinded_name(&format!("harvest:{consumer}"), *tracer))
+                        .map_err(evidence_error)?,
+                ],
+            });
+            let flow_index = if block == 0 {
+                *flow
+            } else {
+                layout.tracer_flow_index(block - 1, *flow)
+            };
+            harvest_ledger_flows.push((ledger, flow_index));
+        }
+        cumulative_axes.push(CumulativeAxes {
+            kind: kind.clone(),
+            input_axis,
+            output_axis,
+            input_ledger,
         });
     }
     let carrier = Arc::new(
@@ -1517,147 +1910,188 @@ fn compile_evidence_plan(
     feedings.sort_by(|left, right| {
         (&left.consumer, &left.resource).cmp(&(&right.consumer, &right.resource))
     });
-    for feeding in feedings {
-        let assimilation = FlowId::new(format!(
-            "feeding-assimilated:{}:{}",
-            feeding.consumer, feeding.resource
-        ))
-        .map_err(evidence_error)?;
-        let waste = FlowId::new(format!(
-            "feeding-waste:{}:{}",
-            feeding.consumer, feeding.resource
-        ))
-        .map_err(evidence_error)?;
-        let sentence = LinearFlowConstraint::new(
-            &carrier,
-            SentenceId::new(format!(
-                "trophic.feeding-partition:{}:{}",
-                feeding.consumer, feeding.resource
-            ))
-            .map_err(evidence_error)?,
-            kind.clone(),
-            [
-                (
-                    assimilation.clone(),
-                    BigRational::one() - &feeding.efficiency,
+    for (block, (tracer, kind)) in kinds.iter().enumerate() {
+        for feeding in &feedings {
+            let assimilation = FlowId::new(kinded_name(
+                &format!(
+                    "feeding-assimilated:{}:{}",
+                    feeding.consumer, feeding.resource
                 ),
-                (waste.clone(), -feeding.efficiency.clone()),
-            ],
-            BigRational::zero(),
-        )
-        .map_err(evidence_error)?;
-        sentence.validate(&carrier).map_err(evidence_error)?;
-        stock_flow_sentences.push(NamedStockFlowSentence::FlowConstraint {
-            law: TrophicLaw::FeedingPartition {
-                consumer: feeding.consumer.clone(),
-                resource: feeding.resource.clone(),
-            },
-            sentence,
-            symbols: vec![SymbolId::Flow(assimilation), SymbolId::Flow(waste)],
-        });
-    }
-    let input_ledger = input_ledger_id()?;
-    stock_flow_sentences.push(NamedStockFlowSentence::Boundary {
-        law: TrophicLaw::NutrientInputCorrespondence,
-        sentence: BoundaryCorrespondence::new(
-            SentenceId::new("trophic.nutrient-input-correspondence").map_err(evidence_error)?,
-            input_ledger.clone(),
-        ),
-        symbols: vec![
-            SymbolId::Ledger(input_ledger),
-            SymbolId::Boundary(BoundaryId::new("nutrient-input").map_err(evidence_error)?),
-        ],
-    });
-    for consumer in layout.harvest_flows.keys() {
-        let ledger = harvest_ledger_id(consumer)?;
-        let boundary = BoundaryId::new(format!("harvest:{consumer}")).map_err(evidence_error)?;
+                *tracer,
+            ))
+            .map_err(evidence_error)?;
+            let waste = FlowId::new(kinded_name(
+                &format!("feeding-waste:{}:{}", feeding.consumer, feeding.resource),
+                *tracer,
+            ))
+            .map_err(evidence_error)?;
+            let sentence = LinearFlowConstraint::new(
+                &carrier,
+                SentenceId::new(kinded_name(
+                    &format!(
+                        "trophic.feeding-partition:{}:{}",
+                        feeding.consumer, feeding.resource
+                    ),
+                    *tracer,
+                ))
+                .map_err(evidence_error)?,
+                kind.clone(),
+                [
+                    (
+                        assimilation.clone(),
+                        BigRational::one() - &feeding.efficiency,
+                    ),
+                    (waste.clone(), -feeding.efficiency.clone()),
+                ],
+                BigRational::zero(),
+            )
+            .map_err(evidence_error)?;
+            sentence.validate(&carrier).map_err(evidence_error)?;
+            stock_flow_sentences.push(NamedStockFlowSentence::FlowConstraint {
+                law: kinded_law(
+                    TrophicLaw::FeedingPartition {
+                        consumer: feeding.consumer.clone(),
+                        resource: feeding.resource.clone(),
+                    },
+                    *tracer,
+                ),
+                sentence,
+                symbols: vec![SymbolId::Flow(assimilation), SymbolId::Flow(waste)],
+            });
+        }
+        let input_ledger = cumulative_axes[block].input_ledger.clone();
         stock_flow_sentences.push(NamedStockFlowSentence::Boundary {
-            law: TrophicLaw::HarvestCorrespondence(consumer.clone()),
+            law: kinded_law(TrophicLaw::NutrientInputCorrespondence, *tracer),
             sentence: BoundaryCorrespondence::new(
-                SentenceId::new(format!("trophic.harvest-correspondence:{consumer}"))
-                    .map_err(evidence_error)?,
-                ledger.clone(),
+                SentenceId::new(kinded_name(
+                    "trophic.nutrient-input-correspondence",
+                    *tracer,
+                ))
+                .map_err(evidence_error)?,
+                input_ledger.clone(),
             ),
-            symbols: vec![SymbolId::Ledger(ledger), SymbolId::Boundary(boundary)],
+            symbols: vec![
+                SymbolId::Ledger(input_ledger),
+                SymbolId::Boundary(
+                    BoundaryId::new(kinded_name("nutrient-input", *tracer))
+                        .map_err(evidence_error)?,
+                ),
+            ],
         });
+        for consumer in layout.harvest_flows.keys() {
+            let ledger = LedgerId::new(kinded_name(
+                &format!("cumulative_harvest:{consumer}"),
+                *tracer,
+            ))
+            .map_err(evidence_error)?;
+            let boundary = BoundaryId::new(kinded_name(&format!("harvest:{consumer}"), *tracer))
+                .map_err(evidence_error)?;
+            stock_flow_sentences.push(NamedStockFlowSentence::Boundary {
+                law: kinded_law(TrophicLaw::HarvestCorrespondence(consumer.clone()), *tracer),
+                sentence: BoundaryCorrespondence::new(
+                    SentenceId::new(kinded_name(
+                        &format!("trophic.harvest-correspondence:{consumer}"),
+                        *tracer,
+                    ))
+                    .map_err(evidence_error)?,
+                    ledger.clone(),
+                ),
+                symbols: vec![SymbolId::Ledger(ledger), SymbolId::Boundary(boundary)],
+            });
+        }
     }
-    let certificate = certify_nullspace(
-        &carrier,
-        kind.clone(),
-        stock_axes
-            .iter()
-            .cloned()
-            .map(|axis| (axis, BigRational::one())),
-    )
-    .map_err(evidence_error)?;
-    let open_balance = certificate
-        .open_balance(SentenceId::new("trophic.open-material-balance").map_err(evidence_error)?);
-    let signature = ConservationSignature::new(
-        stock_axes
-            .iter()
-            .chain([&cumulative_input_axis, &cumulative_output_axis])
-            .cloned()
-            .map(|axis| (axis, kind.clone())),
-    )
-    .map_err(evidence_error)?;
+    let mut signature_axes = Vec::new();
+    for (block, (_, kind)) in kinds.iter().enumerate() {
+        for axis in &stock_axes[base_count * block..base_count * (block + 1)] {
+            signature_axes.push((axis.clone(), kind.clone()));
+        }
+    }
+    for cumulative in &cumulative_axes {
+        signature_axes.push((cumulative.input_axis.clone(), cumulative.kind.clone()));
+        signature_axes.push((cumulative.output_axis.clone(), cumulative.kind.clone()));
+    }
+    let signature = ConservationSignature::new(signature_axes).map_err(evidence_error)?;
 
-    let mut total_coefficients = stock_axes
-        .iter()
-        .cloned()
-        .map(|axis| (axis, BigRational::one()))
-        .collect::<Vec<_>>();
-    total_coefficients.push((cumulative_input_axis.clone(), -BigRational::one()));
-    total_coefficients.push((cumulative_output_axis.clone(), BigRational::one()));
-    let invariant = BalanceLaw::new(kind.clone(), total_coefficients, Provenance::Declared)
-        .map_err(evidence_error)?;
-    let mut sentences = vec![NamedSentence {
-        law: TrophicLaw::MaterialInvariant,
-        sentence: GradedLaw::new(invariant, Grade::Invariant),
-    }];
-
-    for (name, axis) in layout.stock_names.iter().zip(&stock_axes) {
-        let form = BalanceLaw::new(
+    let mut open_balances = Vec::with_capacity(kinds.len());
+    let mut sentences = Vec::new();
+    for (block, (tracer, kind)) in kinds.iter().enumerate() {
+        let block_axes = &stock_axes[base_count * block..base_count * (block + 1)];
+        let certificate = certify_nullspace(
+            &carrier,
             kind.clone(),
-            [(axis.clone(), BigRational::one())],
-            Provenance::Declared,
+            block_axes
+                .iter()
+                .cloned()
+                .map(|axis| (axis, BigRational::one())),
         )
         .map_err(evidence_error)?;
+        open_balances.push((
+            kinded_law(TrophicLaw::OpenMaterialBalance, *tracer),
+            certificate.open_balance(
+                SentenceId::new(kinded_name("trophic.open-material-balance", *tracer))
+                    .map_err(evidence_error)?,
+            ),
+        ));
+
+        let cumulative = &cumulative_axes[block];
+        let mut total_coefficients = block_axes
+            .iter()
+            .cloned()
+            .map(|axis| (axis, BigRational::one()))
+            .collect::<Vec<_>>();
+        total_coefficients.push((cumulative.input_axis.clone(), -BigRational::one()));
+        total_coefficients.push((cumulative.output_axis.clone(), BigRational::one()));
+        let invariant = BalanceLaw::new(kind.clone(), total_coefficients, Provenance::Declared)
+            .map_err(evidence_error)?;
         sentences.push(NamedSentence {
-            law: TrophicLaw::StockNonnegative(name.clone()),
-            sentence: GradedLaw::new(form, Grade::Nonnegative),
+            law: kinded_law(TrophicLaw::MaterialInvariant, *tracer),
+            sentence: GradedLaw::new(invariant, Grade::Invariant),
         });
-    }
-    for (law, axis) in [
-        (
-            TrophicLaw::CumulativeInputNondecreasing,
-            cumulative_input_axis.clone(),
-        ),
-        (
-            TrophicLaw::CumulativeOutputNondecreasing,
-            cumulative_output_axis.clone(),
-        ),
-    ] {
-        let form = BalanceLaw::new(
-            kind.clone(),
-            [(axis, BigRational::one())],
-            Provenance::Declared,
-        )
-        .map_err(evidence_error)?;
-        sentences.push(NamedSentence {
-            law,
-            sentence: GradedLaw::new(form, Grade::Nondecreasing),
-        });
+
+        for (name, axis) in layout.stock_names.iter().zip(block_axes) {
+            let form = BalanceLaw::new(
+                kind.clone(),
+                [(axis.clone(), BigRational::one())],
+                Provenance::Declared,
+            )
+            .map_err(evidence_error)?;
+            sentences.push(NamedSentence {
+                law: kinded_law(TrophicLaw::StockNonnegative(name.clone()), *tracer),
+                sentence: GradedLaw::new(form, Grade::Nonnegative),
+            });
+        }
+        for (law, axis) in [
+            (
+                TrophicLaw::CumulativeInputNondecreasing,
+                cumulative.input_axis.clone(),
+            ),
+            (
+                TrophicLaw::CumulativeOutputNondecreasing,
+                cumulative.output_axis.clone(),
+            ),
+        ] {
+            let form = BalanceLaw::new(
+                kind.clone(),
+                [(axis, BigRational::one())],
+                Provenance::Declared,
+            )
+            .map_err(evidence_error)?;
+            sentences.push(NamedSentence {
+                law: kinded_law(law, *tracer),
+                sentence: GradedLaw::new(form, Grade::Nondecreasing),
+            });
+        }
     }
 
     Ok(ExactEvidencePlan {
         signature,
         carrier,
         stock_axes,
-        cumulative_input_axis,
-        cumulative_output_axis,
+        cumulative_axes,
         sentences,
         stock_flow_sentences,
-        open_balance,
+        open_balances,
+        harvest_ledger_flows,
     })
 }
 
@@ -1691,35 +2125,57 @@ fn stock_flow_channel(flow: &TrophicFlow) -> Result<ChannelId, TrophicNetworkErr
     }
 }
 
-fn input_ledger_id() -> Result<LedgerId, TrophicNetworkError> {
-    LedgerId::new(CUMULATIVE_INPUT).map_err(evidence_error)
+/// Compiles one base flow's carrier channel, suffixed for a tracer block.
+fn stock_flow_channel_for(
+    flow: &TrophicFlow,
+    tracer: Option<&str>,
+) -> Result<ChannelId, TrophicNetworkError> {
+    let channel = stock_flow_channel(flow)?;
+    let Some(kind) = tracer else {
+        return Ok(channel);
+    };
+    match channel {
+        ChannelId::Internal(id) => FlowId::new(tracer_name(id.as_str(), kind))
+            .map(ChannelId::Internal)
+            .map_err(evidence_error),
+        ChannelId::Boundary(id) => BoundaryId::new(tracer_name(id.as_str(), kind))
+            .map(ChannelId::Boundary)
+            .map_err(evidence_error),
+    }
 }
 
-fn harvest_ledger_id(consumer: &str) -> Result<LedgerId, TrophicNetworkError> {
-    LedgerId::new(format!("cumulative_harvest:{consumer}")).map_err(evidence_error)
+/// Cumulative per-kind boundary inputs keyed by input-ledger identity.
+fn exact_input_ledger_amounts(
+    plan: &ExactEvidencePlan,
+    state: &ExactState,
+) -> BTreeMap<LedgerId, BigRational> {
+    plan.cumulative_axes
+        .iter()
+        .map(|cumulative| {
+            (
+                cumulative.input_ledger.clone(),
+                state.inputs(&cumulative.kind),
+            )
+        })
+        .collect()
 }
 
 fn exact_ledger_amounts(
-    carrier: &StockFlowCarrier,
-    inputs: &BigRational,
-    harvests: &BTreeMap<String, BigRational>,
+    plan: &ExactEvidencePlan,
+    inputs: &BTreeMap<LedgerId, BigRational>,
+    harvests: &BTreeMap<LedgerId, BigRational>,
 ) -> Result<ExactAmounts<LedgerId>, TrophicNetworkError> {
-    let input = input_ledger_id()?;
     ExactAmounts::new(
-        carrier
+        plan.carrier
             .identity()
             .ledgers()
             .iter()
             .map(|(ledger, identity)| {
-                let amount = if ledger == &input {
-                    inputs.clone()
-                } else {
-                    let consumer = ledger
-                        .as_str()
-                        .strip_prefix("cumulative_harvest:")
-                        .expect("non-input trophic ledgers are per-consumer harvest ledgers");
-                    harvests[consumer].clone()
-                };
+                let amount = inputs
+                    .get(ledger)
+                    .or_else(|| harvests.get(ledger))
+                    .expect("every carrier ledger is a cumulative input or harvest ledger")
+                    .clone();
                 (ledger.clone(), identity.kind().clone(), amount)
             }),
     )
@@ -1736,14 +2192,16 @@ fn exact_trace_state(
         .cloned()
         .zip(state.amounts().iter().cloned())
         .collect::<Vec<_>>();
-    values.push((
-        plan.cumulative_input_axis.clone(),
-        state.inputs(&material_kind()),
-    ));
-    values.push((
-        plan.cumulative_output_axis.clone(),
-        state.outputs(&material_kind()),
-    ));
+    for cumulative in &plan.cumulative_axes {
+        values.push((
+            cumulative.input_axis.clone(),
+            state.inputs(&cumulative.kind),
+        ));
+        values.push((
+            cumulative.output_axis.clone(),
+            state.outputs(&cumulative.kind),
+        ));
+    }
     TraceState::new(values).map_err(evidence_error)
 }
 
@@ -1843,13 +2301,15 @@ fn evaluate_law_suite(
                 AxisId::new(axis).expect("compiled trophic evidence axes are valid"),
             )],
             None => {
+                let block = invariant_block(plan, &evidence.law);
+                let cumulative = &plan.cumulative_axes[block];
                 let mut axes = plan
-                    .stock_axes
+                    .block_stock_axes(block)
                     .iter()
                     .cloned()
                     .chain([
-                        plan.cumulative_input_axis.clone(),
-                        plan.cumulative_output_axis.clone(),
+                        cumulative.input_axis.clone(),
+                        cumulative.output_axis.clone(),
                     ])
                     .collect::<Vec<_>>();
                 axes.sort();
@@ -1865,29 +2325,43 @@ fn evaluate_law_suite(
         });
     }
 
-    let mut open_axes = plan.stock_axes.clone();
-    open_axes.sort();
-    let mut open_symbols = open_axes
-        .into_iter()
-        .map(SymbolId::Axis)
-        .collect::<Vec<_>>();
-    open_symbols.extend(
-        plan.carrier
-            .boundary_effects()
-            .columns()
-            .cloned()
-            .map(SymbolId::Boundary),
-    );
-    laws.push(CompleteTrophicLawEvidence {
-        law: TrophicLaw::OpenMaterialBalance,
-        family: TrophicSentenceFamily::OpenBalance,
-        symbols: open_symbols,
-        grade: None,
-        verdict: TrophicLawVerdict::OpenBalance(
-            check_open_balance(&plan.open_balance, &transition_trace).map_err(evidence_error)?,
-        ),
-    });
+    for (block, (law, open_balance)) in plan.open_balances.iter().enumerate() {
+        let kind = &plan.cumulative_axes[block].kind;
+        let mut open_axes = plan.block_stock_axes(block).to_vec();
+        open_axes.sort();
+        let mut open_symbols = open_axes
+            .into_iter()
+            .map(SymbolId::Axis)
+            .collect::<Vec<_>>();
+        open_symbols.extend(
+            plan.carrier
+                .boundary_effects()
+                .columns()
+                .filter(|column| plan.carrier.boundary_effects().column_kind(column) == Some(kind))
+                .cloned()
+                .map(SymbolId::Boundary),
+        );
+        laws.push(CompleteTrophicLawEvidence {
+            law: law.clone(),
+            family: TrophicSentenceFamily::OpenBalance,
+            symbols: open_symbols,
+            grade: None,
+            verdict: TrophicLawVerdict::OpenBalance(
+                check_open_balance(open_balance, &transition_trace).map_err(evidence_error)?,
+            ),
+        });
+    }
     Ok(ExactTrophicLawSuiteEvidence { laws })
+}
+
+/// Kind-block index of one graded invariant law (0 is the material block).
+fn invariant_block(plan: &ExactEvidencePlan, law: &TrophicLaw) -> usize {
+    match law {
+        TrophicLaw::Tracer { kind, .. } => plan
+            .block_for_tracer(kind)
+            .expect("compiled tracer laws name declared kinds"),
+        _ => 0,
+    }
 }
 
 fn evidence_error(error: impl fmt::Display) -> TrophicNetworkError {
@@ -1913,7 +2387,7 @@ fn compile_network<N: Clone>(
         .iter()
         .map(|consumer| consumer.name.clone())
         .collect::<Vec<_>>();
-    let stock_definitions = stock_names
+    let mut stock_definitions = stock_names
         .iter()
         .map(|name| StockDefinition {
             id: StockId::new(name).expect("stock identifiers were validated"),
@@ -2032,6 +2506,38 @@ fn compile_network<N: Clone>(
         .collect();
     let mut boundary_symbols = vec![TrophicBoundary::NutrientInput];
     boundary_symbols.extend(harvest_flows.keys().cloned().map(TrophicBoundary::Harvest));
+    let tracer_kind_ids = spec
+        .tracer_kinds
+        .iter()
+        .map(|name| KindId::new(name).expect("tracer kind names were validated"))
+        .collect::<Vec<_>>();
+    for (tracer, tracer_kind) in spec.tracer_kinds.iter().zip(&tracer_kind_ids) {
+        for name in &stock_names[..stock_names.len()] {
+            stock_definitions.push(StockDefinition {
+                id: StockId::new(tracer_name(name, tracer))
+                    .expect("suffixed stock identifiers are nonblank"),
+                kind: tracer_kind.clone(),
+            });
+        }
+    }
+    let base_flows = flows[..flow_count].to_vec();
+    for (tracer, tracer_kind) in spec.tracer_kinds.iter().zip(&tracer_kind_ids) {
+        for flow in &base_flows {
+            flows.push(FlowSpec {
+                process: ProcessId::new(tracer_name(flow.process.as_str(), tracer))
+                    .expect("suffixed process identifiers are nonblank"),
+                kind: tracer_kind.clone(),
+                source: flow.source.as_ref().map(|stock| {
+                    StockId::new(tracer_name(stock.as_str(), tracer))
+                        .expect("suffixed stock identifiers are nonblank")
+                }),
+                target: flow.target.as_ref().map(|stock| {
+                    StockId::new(tracer_name(stock.as_str(), tracer))
+                        .expect("suffixed stock identifiers are nonblank")
+                }),
+            });
+        }
+    }
     let topology = Arc::new(FlowTopology::new(stock_definitions, flows)?);
     let layout = Arc::new(NetworkLayout {
         topology,
@@ -2047,6 +2553,8 @@ fn compile_network<N: Clone>(
         flow_count,
         flow_symbols,
         boundary_symbols,
+        tracer_kinds: spec.tracer_kinds.clone(),
+        tracer_kind_ids,
     });
     let producers = spec
         .producers
@@ -2100,6 +2608,15 @@ fn compile_network<N: Clone>(
 }
 
 fn validate_structure<N>(spec: &TrophicNetworkSpec<N>) -> Result<(), TrophicNetworkError> {
+    let mut kinds = BTreeSet::new();
+    for kind in &spec.tracer_kinds {
+        if KindId::new(kind).is_err() || kind == MATERIAL || kind.contains(KIND_SEPARATOR) {
+            return Err(TrophicNetworkError::InvalidKindName(kind.clone()));
+        }
+        if !kinds.insert(kind.as_str()) {
+            return Err(TrophicNetworkError::DuplicateKind(kind.clone()));
+        }
+    }
     let mut names = BTreeSet::from([
         NUTRIENT.to_owned(),
         DETRITUS.to_owned(),
@@ -2113,6 +2630,9 @@ fn validate_structure<N>(spec: &TrophicNetworkSpec<N>) -> Result<(), TrophicNetw
         .chain(spec.consumers.iter().map(|consumer| &consumer.name))
     {
         StockId::new(name).map_err(|_| TrophicNetworkError::InvalidStockName(name.clone()))?;
+        if !spec.tracer_kinds.is_empty() && name.contains(KIND_SEPARATOR) {
+            return Err(TrophicNetworkError::InvalidStockName(name.clone()));
+        }
         if !names.insert(name.clone()) {
             return Err(TrophicNetworkError::DuplicateStock(name.clone()));
         }
@@ -2231,6 +2751,47 @@ fn exact_initial(
         .collect()
 }
 
+/// Validates per-kind tracer stocks and lays them out in tracer-block order.
+///
+/// A declared kind absent from `tracers` starts all-zero; a present kind must
+/// map every compiled stock, mirroring the base initial-state contract.
+fn tracer_initial<N: Clone>(
+    layout: &NetworkLayout,
+    tracers: BTreeMap<String, BTreeMap<String, N>>,
+    zero: N,
+    validate: impl Fn(&N) -> Result<(), TrophicNetworkError>,
+) -> Result<Vec<N>, TrophicNetworkError> {
+    for kind in tracers.keys() {
+        if layout.tracer_block(kind).is_none() {
+            return Err(TrophicNetworkError::UnknownKind(kind.clone()));
+        }
+    }
+    let mut amounts = Vec::with_capacity(layout.stock_names.len() * layout.tracer_kinds.len());
+    for kind in &layout.tracer_kinds {
+        let Some(initial) = tracers.get(kind) else {
+            amounts.extend(std::iter::repeat_n(zero.clone(), layout.stock_names.len()));
+            continue;
+        };
+        for name in initial.keys() {
+            if !layout.stock_indices.contains_key(name) {
+                return Err(TrophicNetworkError::UnknownInitialStock(tracer_name(
+                    name, kind,
+                )));
+            }
+        }
+        for name in &layout.stock_names {
+            let Some(amount) = initial.get(name) else {
+                return Err(TrophicNetworkError::MissingInitialStock(tracer_name(
+                    name, kind,
+                )));
+            };
+            validate(amount)?;
+            amounts.push(amount.clone());
+        }
+    }
+    Ok(amounts)
+}
+
 fn dense_initial(
     layout: &NetworkLayout,
     initial: BTreeMap<String, f64>,
@@ -2270,9 +2831,10 @@ fn exact_requests(
     amounts: &[BigRational],
     elapsed: &BigRational,
     nutrient_input: BigRational,
+    tracer_inputs: &BTreeMap<String, BigRational>,
     harvests: &BTreeMap<String, BigRational>,
 ) -> Vec<BigRational> {
-    let mut requested = vec![BigRational::zero(); compiled.layout.flow_count];
+    let mut requested = vec![BigRational::zero(); compiled.layout.total_flow_count()];
     requested[compiled.layout.nutrient_input_flow] = nutrient_input;
     let nutrient = &amounts[compiled.nutrient_stock];
     for producer in &compiled.producers {
@@ -2306,6 +2868,31 @@ fn exact_requests(
     for (consumer, amount) in harvests {
         requested[compiled.layout.harvest_flows[consumer]] = amount.clone();
     }
+    // Tracer kinds ride the material flow field: each tracer flow proposes the
+    // base request scaled by the source stock's pre-transition composition.
+    // The kernel's per-source rationing applies the same exact scale to every
+    // outflow of a stock, so settled tracer flows keep this proportion exactly.
+    for (block, kind) in compiled.layout.tracer_kinds.iter().enumerate() {
+        if let Some(amount) = tracer_inputs.get(kind) {
+            requested[compiled
+                .layout
+                .tracer_flow_index(block, compiled.layout.nutrient_input_flow)] = amount.clone();
+        }
+        for (base_flow, flow) in compiled.layout.topology.flows()[..compiled.layout.flow_count]
+            .iter()
+            .enumerate()
+        {
+            let Some(source) = flow.source() else {
+                continue;
+            };
+            if requested[base_flow].is_zero() || amounts[source].is_zero() {
+                continue;
+            }
+            let tracer_stock = compiled.layout.tracer_stock_index(block, source);
+            let amount = &requested[base_flow] * &amounts[tracer_stock] / &amounts[source];
+            requested[compiled.layout.tracer_flow_index(block, base_flow)] = amount;
+        }
+    }
     requested
 }
 
@@ -2314,9 +2901,10 @@ fn dense_requests(
     amounts: &[f64],
     elapsed: f64,
     nutrient_input: f64,
+    tracer_inputs: &BTreeMap<String, f64>,
     harvests: &[f64],
 ) -> Vec<f64> {
-    let mut requested = vec![0.0; compiled.layout.flow_count];
+    let mut requested = vec![0.0; compiled.layout.total_flow_count()];
     requested[compiled.layout.nutrient_input_flow] = nutrient_input;
     let nutrient = amounts[compiled.nutrient_stock];
     for producer in &compiled.producers {
@@ -2347,6 +2935,29 @@ fn dense_requests(
         compiled.decomposition * amounts[compiled.detritus_stock] * elapsed;
     for (consumer, amount) in compiled.consumers.iter().zip(harvests) {
         requested[consumer.harvest_flow] = *amount;
+    }
+    // Dense tracer transport mirrors the exact rule; the proportionality is
+    // only as exact as binary64 division, so the exact runtime stays the oracle.
+    for (block, kind) in compiled.layout.tracer_kinds.iter().enumerate() {
+        if let Some(amount) = tracer_inputs.get(kind) {
+            requested[compiled
+                .layout
+                .tracer_flow_index(block, compiled.layout.nutrient_input_flow)] = *amount;
+        }
+        for (base_flow, flow) in compiled.layout.topology.flows()[..compiled.layout.flow_count]
+            .iter()
+            .enumerate()
+        {
+            let Some(source) = flow.source() else {
+                continue;
+            };
+            if requested[base_flow] == 0.0 || amounts[source] == 0.0 {
+                continue;
+            }
+            let tracer_stock = compiled.layout.tracer_stock_index(block, source);
+            requested[compiled.layout.tracer_flow_index(block, base_flow)] =
+                requested[base_flow] * amounts[tracer_stock] / amounts[source];
+        }
     }
     requested
 }
@@ -2497,14 +3108,10 @@ mod evidence_tests {
                 (axis, amount)
             })
             .collect::<Vec<_>>();
-        values.push((
-            plan.cumulative_input_axis.clone(),
-            integer(cumulative_input),
-        ));
-        values.push((
-            plan.cumulative_output_axis.clone(),
-            integer(cumulative_output),
-        ));
+        for cumulative in &plan.cumulative_axes {
+            values.push((cumulative.input_axis.clone(), integer(cumulative_input)));
+            values.push((cumulative.output_axis.clone(), integer(cumulative_output)));
+        }
         TraceState::new(values).unwrap()
     }
 

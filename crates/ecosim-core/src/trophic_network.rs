@@ -168,7 +168,8 @@ impl<N> TrophicNetworkSpec<N> {
     /// Each tracer kind gets one stock per material stock and one flow per
     /// material flow. Tracer flows move in exact proportion to the settled
     /// material flow and the source stock's pre-transition tracer composition,
-    /// so each kind's books close independently.
+    /// so each kind's books close independently. Kinds compile in sorted
+    /// order, so declaration order never changes the compiled plan.
     pub fn with_tracer_kinds(
         producers: Vec<ProducerSpec<N>>,
         consumers: Vec<ConsumerSpec<N>>,
@@ -650,6 +651,9 @@ pub enum TrophicLaw {
     CumulativeOutputNondecreasing,
     /// Checked total material balance against all boundary ports.
     OpenMaterialBalance,
+    /// Every settled flow of one tracer kind moves in exact source-composition
+    /// proportion to its settled material flow. Always wrapped in [`Self::Tracer`].
+    TracerTransport,
     /// One base law transported to a declared tracer kind's mirrored block.
     Tracer {
         /// The declared tracer kind name.
@@ -668,7 +672,8 @@ impl TrophicLaw {
             | Self::NutrientInputCorrespondence
             | Self::HarvestCorrespondence(_)
             | Self::MaterialInvariant
-            | Self::OpenMaterialBalance => None,
+            | Self::OpenMaterialBalance
+            | Self::TracerTransport => None,
             Self::StockNonnegative(name) => Some(name.clone()),
             Self::CumulativeInputNondecreasing => Some(CUMULATIVE_INPUT.to_owned()),
             Self::CumulativeOutputNondecreasing => Some(CUMULATIVE_OUTPUT.to_owned()),
@@ -698,6 +703,8 @@ pub enum TrophicSentenceFamily {
     Graded,
     /// Certificate-derived direct open balance.
     OpenBalance,
+    /// Exact tracer source-composition transport.
+    Transport,
 }
 
 /// Typed verdict from one member of the complete trophic-law suite.
@@ -713,6 +720,8 @@ pub enum TrophicLawVerdict {
     Graded(LawVerdict),
     /// Derived open-balance result.
     OpenBalance(OpenBalanceVerdict),
+    /// Tracer source-composition transport result.
+    Transport(TracerTransportVerdict),
 }
 
 impl TrophicLawVerdict {
@@ -724,8 +733,164 @@ impl TrophicLawVerdict {
             Self::Boundary(verdict) => verdict.is_satisfied(),
             Self::Graded(verdict) => matches!(verdict, LawVerdict::Satisfied(_)),
             Self::OpenBalance(verdict) => verdict.is_satisfied(),
+            Self::Transport(verdict) => verdict.is_satisfied(),
         }
     }
+}
+
+/// One checked pairing of a material channel with its tracer mirror.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TracerTransportChannel {
+    /// Material-kind channel whose settled amount drives the tracer.
+    pub material: ChannelId,
+    /// Mirrored tracer-kind channel.
+    pub tracer: ChannelId,
+    /// Material source-stock axis.
+    pub material_source: AxisId,
+    /// Tracer source-stock axis.
+    pub tracer_source: AxisId,
+}
+
+/// Exact source-composition transport sentence for one tracer kind.
+///
+/// For every accepted transition and every sourced flow it claims
+/// `tracer_settled * material_source_before == material_settled * tracer_source_before`,
+/// and that no tracer leaves a stock whose material amount is zero. Together
+/// these pin the settled tracer flow to the settled material flow scaled by the
+/// source stock's exact pre-transition composition.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TracerTransportSentence {
+    id: SentenceId,
+    kind: String,
+    channels: Vec<TracerTransportChannel>,
+}
+
+impl TracerTransportSentence {
+    /// Stable sentence identifier.
+    pub fn id(&self) -> &SentenceId {
+        &self.id
+    }
+
+    /// Declared tracer kind name.
+    pub fn kind(&self) -> &str {
+        &self.kind
+    }
+
+    /// Checked channel pairings in stable compiled flow order.
+    pub fn channels(&self) -> &[TracerTransportChannel] {
+        &self.channels
+    }
+}
+
+/// Positive tracer-transport evidence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TracerTransportWitness {
+    /// Sentence identifier.
+    pub sentence: SentenceId,
+    /// Declared tracer kind name.
+    pub kind: String,
+    /// Number of accepted transitions checked.
+    pub transitions_checked: usize,
+    /// Number of channel pairings checked per transition.
+    pub channels_checked: usize,
+}
+
+/// First exact tracer-transport mismatch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TracerTransportViolation {
+    /// Sentence identifier.
+    pub sentence: SentenceId,
+    /// First mismatching transition.
+    pub transition: usize,
+    /// Declared tracer kind name.
+    pub kind: String,
+    /// Material-kind channel of the mismatching pairing.
+    pub material: ChannelId,
+    /// Tracer-kind channel of the mismatching pairing.
+    pub tracer: ChannelId,
+    /// Recorded settled material amount.
+    pub material_settled: BigRational,
+    /// Recorded settled tracer amount.
+    pub tracer_settled: BigRational,
+    /// Material source stock before the transition.
+    pub material_source_before: BigRational,
+    /// Tracer source stock before the transition.
+    pub tracer_source_before: BigRational,
+}
+
+/// Typed exact tracer-transport result.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TracerTransportVerdict {
+    /// Every sourced tracer flow kept exact source proportion.
+    Satisfied(TracerTransportWitness),
+    /// First flow that broke exact source proportion.
+    Violated(Box<TracerTransportViolation>),
+}
+
+impl TracerTransportVerdict {
+    /// Whether the verdict carries positive evidence.
+    pub fn is_satisfied(&self) -> bool {
+        matches!(self, Self::Satisfied(_))
+    }
+}
+
+/// Checks one tracer kind's settled flows for exact source-composition transport.
+pub fn check_tracer_transport(
+    sentence: &TracerTransportSentence,
+    trace: &TransitionTrace,
+) -> Result<TracerTransportVerdict, TrophicNetworkError> {
+    for (transition, record) in trace.records().iter().enumerate() {
+        for channel in &sentence.channels {
+            let material_settled = settled_channel_amount(record, &channel.material)?;
+            let tracer_settled = settled_channel_amount(record, &channel.tracer)?;
+            let material_before = before_amount(record, &channel.material_source)?;
+            let tracer_before = before_amount(record, &channel.tracer_source)?;
+            let proportional = tracer_settled * material_before == material_settled * tracer_before;
+            let stranded_moved = material_before.is_zero() && !tracer_settled.is_zero();
+            if !proportional || stranded_moved {
+                return Ok(TracerTransportVerdict::Violated(Box::new(
+                    TracerTransportViolation {
+                        sentence: sentence.id.clone(),
+                        transition,
+                        kind: sentence.kind.clone(),
+                        material: channel.material.clone(),
+                        tracer: channel.tracer.clone(),
+                        material_settled: material_settled.clone(),
+                        tracer_settled: tracer_settled.clone(),
+                        material_source_before: material_before.clone(),
+                        tracer_source_before: tracer_before.clone(),
+                    },
+                )));
+            }
+        }
+    }
+    Ok(TracerTransportVerdict::Satisfied(TracerTransportWitness {
+        sentence: sentence.id.clone(),
+        kind: sentence.kind.clone(),
+        transitions_checked: trace.records().len(),
+        channels_checked: sentence.channels.len(),
+    }))
+}
+
+fn settled_channel_amount<'a>(
+    record: &'a TransitionRecord,
+    channel: &ChannelId,
+) -> Result<&'a BigRational, TrophicNetworkError> {
+    match channel {
+        ChannelId::Internal(flow) => record.settled_internal().amount(flow),
+        ChannelId::Boundary(boundary) => record.settled_boundary().amount(boundary),
+    }
+    .ok_or_else(|| evidence_error(format!("record lacks transport channel {channel:?}")))
+}
+
+fn before_amount<'a>(
+    record: &'a TransitionRecord,
+    axis: &AxisId,
+) -> Result<&'a BigRational, TrophicNetworkError> {
+    record
+        .before()
+        .amount(axis)
+        .ok_or_else(|| evidence_error(format!("record lacks source axis {axis}")))
 }
 
 /// One named member of the complete process, boundary, and graded law suite.
@@ -845,6 +1010,13 @@ struct NamedSentence {
 }
 
 #[derive(Clone, Debug)]
+struct NamedTracerTransport {
+    law: TrophicLaw,
+    sentence: TracerTransportSentence,
+    symbols: Vec<SymbolId>,
+}
+
+#[derive(Clone, Debug)]
 enum NamedStockFlowSentence {
     Transition {
         law: TrophicLaw,
@@ -892,6 +1064,8 @@ struct ExactEvidencePlan {
     cumulative_axes: Vec<CumulativeAxes>,
     sentences: Vec<NamedSentence>,
     stock_flow_sentences: Vec<NamedStockFlowSentence>,
+    /// One source-composition transport sentence per tracer kind.
+    tracer_transport: Vec<NamedTracerTransport>,
     /// Per-kind certificate-derived open balances in `cumulative_axes` order.
     open_balances: Vec<(TrophicLaw, OpenBalance)>,
     /// Every harvest ledger and its settled full-topology flow index.
@@ -981,22 +1155,23 @@ impl ExactTrophicNetwork {
         self.tracer_amounts(kind)?.get(index)
     }
 
-    /// Exact cumulative boundary input.
+    /// Exact cumulative material-kind boundary input.
     pub fn inputs(&self) -> BigRational {
         self.state.inputs(&material_kind())
     }
 
-    /// Exact cumulative boundary output.
+    /// Exact cumulative material-kind boundary output.
     pub fn outputs(&self) -> BigRational {
         self.state.outputs(&material_kind())
     }
 
-    /// Exact open-system residual.
+    /// Exact material-kind open-system residual.
     pub fn balance_residual(&self) -> BigRational {
         self.state.balance_residual(&material_kind())
     }
 
-    /// Whether the exact open-system ledger closes.
+    /// Whether the exact material-kind ledger closes; tracer kinds have their
+    /// own residuals via [`Self::tracer_balance_residual`].
     pub fn is_balanced(&self) -> bool {
         self.balance_residual().is_zero()
     }
@@ -1242,6 +1417,14 @@ impl ExactTrophicNetworkPlan {
         &self.compiled.layout.tracer_kinds
     }
 
+    /// One compiled source-composition transport sentence per tracer kind.
+    pub fn tracer_transport_sentences(&self) -> impl Iterator<Item = &TracerTransportSentence> {
+        self.evidence
+            .tracer_transport
+            .iter()
+            .map(|named| &named.sentence)
+    }
+
     /// Stable evidence-axis order: physical stocks, then per-kind cumulative input and output.
     pub fn evidence_axis_names(&self) -> impl Iterator<Item = &str> {
         self.evidence
@@ -1270,6 +1453,12 @@ impl ExactTrophicNetworkPlan {
             .map(NamedStockFlowSentence::law)
             .cloned()
             .collect::<Vec<_>>();
+        laws.extend(
+            self.evidence
+                .tracer_transport
+                .iter()
+                .map(|named| named.law.clone()),
+        );
         let mut graded = self
             .evidence
             .sentences
@@ -1498,25 +1687,33 @@ impl DenseTrophicNetwork {
         self.compiled.layout.tracer_kind_ids.get(block)
     }
 
-    /// Cumulative boundary input.
+    /// Cumulative material-kind boundary input.
     pub fn inputs(&self) -> f64 {
         self.state.inputs(&material_kind())
     }
 
-    /// Cumulative boundary output.
+    /// Cumulative material-kind boundary output.
     pub fn outputs(&self) -> f64 {
         self.state.outputs(&material_kind())
     }
 
-    /// Dense open-system residual.
+    /// Dense material-kind open-system residual.
     pub fn balance_residual(&self) -> f64 {
         self.state.balance_residual(&material_kind())
     }
 
-    /// Whether the dense ledger closes within the kernel's explicit tolerance.
+    /// Whether the material-kind dense ledger closes within the kernel's explicit tolerance.
     pub fn is_balanced(&self) -> bool {
         self.state
             .balance_within(&material_kind(), trophic_dense_balance_tolerance())
+    }
+
+    /// Whether one tracer kind's dense ledger closes within the kernel's explicit tolerance.
+    pub fn tracer_is_balanced(&self, kind: &str) -> Option<bool> {
+        self.tracer_kind_id(kind).map(|kind| {
+            self.state
+                .balance_within(kind, trophic_dense_balance_tolerance())
+        })
     }
 
     /// Settles one simultaneous process batch atomically.
@@ -1530,6 +1727,10 @@ impl DenseTrophicNetwork {
     }
 
     /// Settles one step with explicit per-kind tracer boundary inputs.
+    ///
+    /// Extreme tracer-to-material compositions can overflow binary64 during
+    /// the source-proportion scaling; such a step fails with
+    /// [`TrophicNetworkError::NonFiniteAmount`] and leaves the state unchanged.
     pub fn step_with_tracer_inputs(
         &mut self,
         elapsed: f64,
@@ -1564,6 +1765,9 @@ impl DenseTrophicNetwork {
     }
 
     /// Settles one step with harvests in the compiled consumer order.
+    ///
+    /// Tracer boundary inputs are zero; tracer stocks still ride the settled
+    /// material flows in source proportion.
     pub fn step_ordered(
         &mut self,
         elapsed: f64,
@@ -1582,6 +1786,9 @@ impl DenseTrophicNetwork {
     }
 
     /// Settles an ordered step without allocating owned per-flow observations.
+    ///
+    /// Tracer boundary inputs are zero; tracer stocks still ride the settled
+    /// material flows in source proportion.
     pub fn step_discard_ordered(
         &mut self,
         elapsed: f64,
@@ -1630,6 +1837,10 @@ impl DenseTrophicNetwork {
             tracer_inputs,
             harvests,
         );
+        // Extreme tracer compositions can overflow binary64 during the
+        // source-proportion scaling; fail here with a trophic error instead of
+        // an opaque kernel rejection.
+        ensure_dense_values(&requested)?;
         Ok((next_time, requested))
     }
 }
@@ -2000,6 +2211,51 @@ fn compile_evidence_plan(
             });
         }
     }
+    let mut tracer_transport = Vec::with_capacity(kinds.len() - 1);
+    for (block, (tracer, _)) in kinds.iter().enumerate() {
+        let Some(kind_name) = tracer else {
+            continue;
+        };
+        let mut transport_channels = Vec::new();
+        for (base_flow, flow) in layout.topology.flows()[..layout.flow_count]
+            .iter()
+            .enumerate()
+        {
+            let Some(source) = flow.source() else {
+                continue;
+            };
+            transport_channels.push(TracerTransportChannel {
+                material: stock_flow_channel_for(&layout.flow_symbols[base_flow], None)?,
+                tracer: stock_flow_channel_for(&layout.flow_symbols[base_flow], Some(kind_name))?,
+                material_source: stock_axes[source].clone(),
+                tracer_source: stock_axes[base_count * block + source].clone(),
+            });
+        }
+        let mut symbols = stock_axes[base_count * block..base_count * (block + 1)]
+            .iter()
+            .cloned()
+            .map(SymbolId::Axis)
+            .collect::<Vec<_>>();
+        symbols.extend(
+            transport_channels
+                .iter()
+                .map(|channel| match &channel.tracer {
+                    ChannelId::Internal(flow) => SymbolId::Flow(flow.clone()),
+                    ChannelId::Boundary(boundary) => SymbolId::Boundary(boundary.clone()),
+                }),
+        );
+        tracer_transport.push(NamedTracerTransport {
+            law: TrophicLaw::TracerTransport.for_tracer(kind_name),
+            sentence: TracerTransportSentence {
+                id: SentenceId::new(tracer_name("trophic.tracer-transport", kind_name))
+                    .map_err(evidence_error)?,
+                kind: (*kind_name).to_owned(),
+                channels: transport_channels,
+            },
+            symbols,
+        });
+    }
+
     let mut signature_axes = Vec::new();
     for (block, (_, kind)) in kinds.iter().enumerate() {
         for axis in &stock_axes[base_count * block..base_count * (block + 1)] {
@@ -2090,6 +2346,7 @@ fn compile_evidence_plan(
         cumulative_axes,
         sentences,
         stock_flow_sentences,
+        tracer_transport,
         open_balances,
         harvest_ledger_flows,
     })
@@ -2293,6 +2550,19 @@ fn evaluate_law_suite(
         laws.push(evidence);
     }
 
+    for named in &plan.tracer_transport {
+        laws.push(CompleteTrophicLawEvidence {
+            law: named.law.clone(),
+            family: TrophicSentenceFamily::Transport,
+            symbols: named.symbols.clone(),
+            grade: None,
+            verdict: TrophicLawVerdict::Transport(check_tracer_transport(
+                &named.sentence,
+                &transition_trace,
+            )?),
+        });
+    }
+
     let mut graded = evaluate_evidence(plan, states)?.laws;
     graded.sort_by(|left, right| left.law.cmp(&right.law));
     for evidence in graded {
@@ -2372,6 +2642,10 @@ fn compile_network<N: Clone>(
     spec: TrophicNetworkSpec<N>,
 ) -> Result<CompiledNetwork<N>, TrophicNetworkError> {
     validate_structure(&spec)?;
+    // Canonicalize kind order so every compiled artifact — axes, blocks, and
+    // the law suite — is identical across declaration-order permutations.
+    let mut spec = spec;
+    spec.tracer_kinds.sort();
     let kind = material_kind();
     let mut stock_names = vec![NUTRIENT.to_owned()];
     stock_names.extend(spec.producers.iter().map(|producer| producer.name.clone()));
@@ -2631,6 +2905,11 @@ fn validate_structure<N>(spec: &TrophicNetworkSpec<N>) -> Result<(), TrophicNetw
     {
         StockId::new(name).map_err(|_| TrophicNetworkError::InvalidStockName(name.clone()))?;
         if !spec.tracer_kinds.is_empty() && name.contains(KIND_SEPARATOR) {
+            return Err(TrophicNetworkError::InvalidStockName(name.clone()));
+        }
+        // The harvest-ledger axis namespace is reserved: a stock named into it
+        // would collide with `cumulative_harvest:{consumer}` evidence axes.
+        if name == "cumulative_harvest" || name.starts_with("cumulative_harvest:") {
             return Err(TrophicNetworkError::InvalidStockName(name.clone()));
         }
         if !names.insert(name.clone()) {

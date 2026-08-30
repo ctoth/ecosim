@@ -643,7 +643,7 @@ impl PyTrophicNetworkPlan {
             .evidence_laws()
             .map(|law| {
                 (
-                    trophic_law_name(law).to_owned(),
+                    trophic_law_name(law),
                     law.axis_name(),
                     trophic_law_grade(law).to_owned(),
                 )
@@ -658,7 +658,7 @@ impl PyTrophicNetworkPlan {
             .iter()
             .map(|law| {
                 (
-                    trophic_law_name(law).to_owned(),
+                    trophic_law_name(law),
                     law.axis_name(),
                     trophic_law_grade(law).to_owned(),
                 )
@@ -758,7 +758,7 @@ impl PyTrophicNetwork {
             .iter()
             .map(|evidence| {
                 (
-                    trophic_law_name(evidence.law()).to_owned(),
+                    trophic_law_name(evidence.law()),
                     evidence.law().axis_name(),
                     evidence.grade().to_string(),
                     evidence.is_satisfied(),
@@ -776,7 +776,7 @@ impl PyTrophicNetwork {
             .iter()
             .map(|evidence| {
                 (
-                    trophic_law_name(evidence.law()).to_owned(),
+                    trophic_law_name(evidence.law()),
                     evidence.law().axis_name(),
                     evidence.grade().map_or_else(
                         || trophic_family_name(evidence.family()).to_owned(),
@@ -903,18 +903,19 @@ impl PyTrophicNetwork {
     }
 }
 
-fn trophic_law_name(law: &TrophicLaw) -> &'static str {
+fn trophic_law_name(law: &TrophicLaw) -> String {
     match law {
-        TrophicLaw::TransitionEquation => "transition_equation",
-        TrophicLaw::FeedingPartition { .. } => "feeding_partition",
-        TrophicLaw::NutrientInputCorrespondence => "nutrient_input_correspondence",
-        TrophicLaw::HarvestCorrespondence(_) => "harvest_correspondence",
-        TrophicLaw::MaterialInvariant => "material_invariant",
-        TrophicLaw::StockNonnegative(_) => "stock_nonnegative",
-        TrophicLaw::CumulativeInputNondecreasing => "cumulative_input_nondecreasing",
-        TrophicLaw::CumulativeOutputNondecreasing => "cumulative_output_nondecreasing",
-        TrophicLaw::OpenMaterialBalance => "open_material_balance",
-        TrophicLaw::Tracer { law, .. } => trophic_law_name(law),
+        TrophicLaw::TransitionEquation => "transition_equation".to_owned(),
+        TrophicLaw::FeedingPartition { .. } => "feeding_partition".to_owned(),
+        TrophicLaw::NutrientInputCorrespondence => "nutrient_input_correspondence".to_owned(),
+        TrophicLaw::HarvestCorrespondence(_) => "harvest_correspondence".to_owned(),
+        TrophicLaw::MaterialInvariant => "material_invariant".to_owned(),
+        TrophicLaw::StockNonnegative(_) => "stock_nonnegative".to_owned(),
+        TrophicLaw::CumulativeInputNondecreasing => "cumulative_input_nondecreasing".to_owned(),
+        TrophicLaw::CumulativeOutputNondecreasing => "cumulative_output_nondecreasing".to_owned(),
+        TrophicLaw::OpenMaterialBalance => "open_material_balance".to_owned(),
+        TrophicLaw::TracerTransport => "tracer_transport".to_owned(),
+        TrophicLaw::Tracer { kind, law } => format!("{}:{kind}", trophic_law_name(law)),
     }
 }
 
@@ -931,6 +932,7 @@ fn trophic_law_grade(law: &TrophicLaw) -> &'static str {
             "nondecreasing"
         }
         TrophicLaw::OpenMaterialBalance => "open_balance",
+        TrophicLaw::TracerTransport => "transport",
         TrophicLaw::Tracer { law, .. } => trophic_law_grade(law),
     }
 }
@@ -942,6 +944,7 @@ fn trophic_family_name(family: TrophicSentenceFamily) -> &'static str {
         TrophicSentenceFamily::Boundary => "boundary",
         TrophicSentenceFamily::Graded => "graded",
         TrophicSentenceFamily::OpenBalance => "open_balance",
+        TrophicSentenceFamily::Transport => "transport",
     }
 }
 

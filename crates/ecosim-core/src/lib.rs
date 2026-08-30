@@ -28,9 +28,11 @@ pub use trophic_network::{
     DenseTrophicNetworkStep, ExactTrophicLawSuiteEvidence, ExactTrophicNetwork,
     ExactTrophicNetworkEvidence, ExactTrophicNetworkPlan, ExactTrophicNetworkStep,
     ExactTrophicTransition, FeedingSpec, ProducerSpec, TROPHIC_DENSE_BALANCE_ABSOLUTE_TOLERANCE,
-    TROPHIC_DENSE_BALANCE_RELATIVE_TOLERANCE, TrophicBoundary, TrophicFlow, TrophicLaw,
-    TrophicLawEvidence, TrophicLawVerdict, TrophicNetworkError, TrophicNetworkSpec,
-    TrophicSentenceFamily, trophic_dense_balance_tolerance,
+    TROPHIC_DENSE_BALANCE_RELATIVE_TOLERANCE, TracerTransportChannel, TracerTransportSentence,
+    TracerTransportVerdict, TracerTransportViolation, TracerTransportWitness, TrophicBoundary,
+    TrophicFlow, TrophicLaw, TrophicLawEvidence, TrophicLawVerdict, TrophicNetworkError,
+    TrophicNetworkSpec, TrophicSentenceFamily, check_tracer_transport,
+    trophic_dense_balance_tolerance,
 };
 
 use std::error::Error as StdError;

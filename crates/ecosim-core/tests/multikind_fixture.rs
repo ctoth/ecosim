@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
-use conservation_core::KindId;
-use conservation_dynamics::{FlowSpec, FlowTopology, ProcessId, StockDefinition, StockId};
+use conservation_dynamics::{
+    FlowSpec, FlowTopology, ProcessId, Rationing, StockDefinition, StockId,
+};
 use conservation_stock_flow::{
     BoundaryVerdict, ExactAmounts, FlowId, LinearFlowConstraint, OpenBalanceVerdict, SentenceId,
     StockFlowError, TransitionRecord, TransitionTrace, TransitionVerdict,
     check_boundary_correspondence, check_open_balance, check_transition_equation,
 };
-use ecosim_core::synthetic_multikind_fixture;
+use ecosim_core::{EcosimKind, EcosimKinds, synthetic_multikind_fixture};
 use num_rational::BigRational;
 
 #[test]
@@ -34,15 +35,15 @@ fn synthetic_cnp_energy_fixture_satisfies_exact_transition_and_boundaries() {
 
 #[test]
 fn topology_rejects_a_carbon_flow_effect_on_a_nitrogen_stock() {
-    let carbon = KindId::new("carbon").unwrap();
-    let nitrogen = KindId::new("nitrogen").unwrap();
+    let carbon = EcosimKinds::declare("carbon").unwrap();
+    let nitrogen = EcosimKinds::declare("nitrogen").unwrap();
     let c = StockId::new("c-stock").unwrap();
     let n = StockId::new("n-stock").unwrap();
     let result = FlowTopology::new(
         [
             StockDefinition {
                 id: c.clone(),
-                kind: carbon.clone(),
+                kind: carbon,
             },
             StockDefinition {
                 id: n.clone(),
@@ -55,6 +56,7 @@ fn topology_rejects_a_carbon_flow_effect_on_a_nitrogen_stock() {
             source: Some(c),
             target: Some(n),
         }],
+        [],
     );
     assert!(result.is_err());
 }
@@ -62,10 +64,12 @@ fn topology_rejects_a_carbon_flow_effect_on_a_nitrogen_stock() {
 #[test]
 fn checked_sentence_construction_rejects_a_nitrogen_flow_in_a_carbon_law() {
     let fixture = synthetic_multikind_fixture().unwrap();
+    let carbon = EcosimKinds::declare("carbon").unwrap();
+    let nitrogen = EcosimKinds::declare("nitrogen").unwrap();
     let result = LinearFlowConstraint::new(
         fixture.carrier(),
         SentenceId::new("cross-kind-law").unwrap(),
-        KindId::new("carbon").unwrap(),
+        carbon,
         [(
             FlowId::new("n-incorporation").unwrap(),
             BigRational::from_integer(1.into()),
@@ -75,14 +79,30 @@ fn checked_sentence_construction_rejects_a_nitrogen_flow_in_a_carbon_law() {
     assert!(matches!(
         result,
         Err(StockFlowError::SentenceKindMismatch { expected, actual, .. })
-            if expected == KindId::new("carbon").unwrap()
-                && actual == KindId::new("nitrogen").unwrap()
+            if expected == carbon && actual == nitrogen
     ));
+}
+
+#[test]
+fn fixture_processes_are_all_declared_rationed() {
+    let fixture = synthetic_multikind_fixture().unwrap();
+    let topology = fixture.carrier().topology();
+    assert!(!topology.processes().is_empty());
+    for process in topology.processes() {
+        assert_eq!(
+            topology.rationing(process),
+            Some(Rationing::Ration),
+            "{process:?}"
+        );
+    }
 }
 
 fn omitted_energy_boundary_trace(
     boundary_name: &str,
-) -> (ecosim_core::SyntheticMultikindFixture, TransitionTrace) {
+) -> (
+    ecosim_core::SyntheticMultikindFixture,
+    TransitionTrace<EcosimKind>,
+) {
     let fixture = synthetic_multikind_fixture().unwrap();
     let mut data = fixture.trace().records()[0].clone().into_data();
     data.settled_boundary = ExactAmounts::new(data.settled_boundary.iter().map(
@@ -92,7 +112,7 @@ fn omitted_energy_boundary_trace(
             } else {
                 amount.clone()
             };
-            (boundary.clone(), kind.clone(), amount)
+            (boundary.clone(), kind, amount)
         },
     ))
     .unwrap();

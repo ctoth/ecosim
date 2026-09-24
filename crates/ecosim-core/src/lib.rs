@@ -3,16 +3,19 @@
 //! Conserved exact and dense foundations for ecosystem simulation.
 
 mod food_web;
+mod kinds;
 mod kinetics;
 mod multikind_fixture;
 mod paired;
 pub mod paper_models;
+mod settlement;
 mod trophic_network;
 
 pub use food_web::{
     DenseFoodWeb, DenseFoodWebParameters, DenseFoodWebStep, FoodWeb, FoodWebError,
     FoodWebParameters, FoodWebStep,
 };
+pub use kinds::{EcosimKind, EcosimKinds};
 pub use kinetics::{
     AllocationSentence, AllocationVerdict, AllocationViolation, AllocationWitness, KineticError,
     KineticLaw, KineticSentence, KineticVerdict, KineticViolation, KineticWitness,
@@ -38,7 +41,7 @@ pub use trophic_network::{
 use std::error::Error as StdError;
 use std::fmt;
 
-use conservation_core::{AxisId, BalanceLaw, Grade, GradedLaw, KindId, Provenance};
+use conservation_core::{AxisId, BalanceLaw, Grade, GradedLaw, Provenance};
 use conservation_linear::{NullspaceSource, TransitionMatrix, derive_left_nullspace};
 use conservation_trace::TraceState;
 use institution::Institution;
@@ -281,7 +284,7 @@ impl World {
         let model = TraceModel::new(signature.clone(), self.trace.clone())
             .map_err(|error| WorldError::Foundation(error.to_string()))?;
         let sentence = energy_sentence()?;
-        ConservationInstitution
+        ConservationInstitution::<EcosimKind>::new()
             .satisfies(&signature, &model, &sentence)
             .map_err(|error| WorldError::Foundation(error.to_string()))
     }
@@ -293,7 +296,7 @@ impl World {
             .map_err(|error| WorldError::Foundation(error.to_string()))?;
         for compartment in [Compartment::Left, Compartment::Right] {
             let sentence = nonnegative_stock_sentence(compartment)?;
-            if !ConservationInstitution
+            if !ConservationInstitution::<EcosimKind>::new()
                 .satisfies(&signature, &model, &sentence)
                 .map_err(|error| WorldError::Foundation(error.to_string()))?
             {
@@ -335,7 +338,7 @@ impl World {
 }
 
 /// Derives the unique exact energy law from all supported transition types.
-pub fn energy_law() -> Result<BalanceLaw, WorldError> {
+pub fn energy_law() -> Result<BalanceLaw<EcosimKind>, WorldError> {
     let one = BigRational::one();
     let zero = BigRational::zero();
     let minus_one = -one.clone();
@@ -369,8 +372,9 @@ pub fn energy_law() -> Result<BalanceLaw, WorldError> {
         ],
     )
     .map_err(|error| WorldError::Foundation(error.to_string()))?;
-    let mut laws = derive_left_nullspace(&matrix, energy_kind()?, NullspaceSource::Stoichiometric)
-        .map_err(|error| WorldError::Foundation(error.to_string()))?;
+    let mut laws =
+        derive_left_nullspace(&matrix, EcosimKind::ENERGY, NullspaceSource::Stoichiometric)
+            .map_err(|error| WorldError::Foundation(error.to_string()))?;
     if laws.len() != 1 {
         return Err(WorldError::UnexpectedLawCount(laws.len()));
     }
@@ -378,14 +382,16 @@ pub fn energy_law() -> Result<BalanceLaw, WorldError> {
 }
 
 /// Reads the derived energy form as an invariant institutional sentence.
-pub fn energy_sentence() -> Result<GradedLaw, WorldError> {
+pub fn energy_sentence() -> Result<GradedLaw<EcosimKind>, WorldError> {
     Ok(GradedLaw::new(energy_law()?, Grade::Invariant))
 }
 
 /// Declares that one internal stock axis must remain nonnegative along a trace.
-pub fn nonnegative_stock_sentence(compartment: Compartment) -> Result<GradedLaw, WorldError> {
+pub fn nonnegative_stock_sentence(
+    compartment: Compartment,
+) -> Result<GradedLaw<EcosimKind>, WorldError> {
     let form = BalanceLaw::new(
-        energy_kind()?,
+        EcosimKind::ENERGY,
         [(axis(&compartment.to_string())?, BigRational::one())],
         Provenance::Declared,
     )
@@ -393,22 +399,17 @@ pub fn nonnegative_stock_sentence(compartment: Compartment) -> Result<GradedLaw,
     Ok(GradedLaw::new(form, Grade::Nonnegative))
 }
 
-fn energy_signature() -> Result<ConservationSignature, WorldError> {
-    let kind = energy_kind()?;
+fn energy_signature() -> Result<ConservationSignature<EcosimKind>, WorldError> {
     ConservationSignature::new([
-        (axis("left")?, kind.clone()),
-        (axis("right")?, kind.clone()),
-        (axis("net_external")?, kind),
+        (axis("left")?, EcosimKind::ENERGY),
+        (axis("right")?, EcosimKind::ENERGY),
+        (axis("net_external")?, EcosimKind::ENERGY),
     ])
     .map_err(|error| WorldError::Foundation(error.to_string()))
 }
 
 fn axis(value: &str) -> Result<AxisId, WorldError> {
     AxisId::new(value).map_err(|error| WorldError::Foundation(error.to_string()))
-}
-
-fn energy_kind() -> Result<KindId, WorldError> {
-    KindId::new("energy").map_err(|error| WorldError::Foundation(error.to_string()))
 }
 
 fn ensure_nonnegative(value: &BigRational) -> Result<(), WorldError> {
@@ -470,12 +471,12 @@ mod tests {
         .unwrap();
 
         assert!(
-            ConservationInstitution
+            ConservationInstitution::<EcosimKind>::new()
                 .satisfies(&signature, &model, &energy_sentence().unwrap())
                 .unwrap()
         );
         assert!(
-            !ConservationInstitution
+            !ConservationInstitution::<EcosimKind>::new()
                 .satisfies(
                     &signature,
                     &model,
@@ -484,7 +485,7 @@ mod tests {
                 .unwrap()
         );
         assert!(
-            ConservationInstitution
+            ConservationInstitution::<EcosimKind>::new()
                 .satisfies(
                     &signature,
                     &model,

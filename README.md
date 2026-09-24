@@ -37,7 +37,8 @@ moves it into consumers; mortality moves both living stocks into detritus; and
 decomposition recycles detritus into nutrient. Nutrient input and consumer
 harvest cross the model boundary. All mechanisms propose flows from the same
 pre-step state and the shared `conservation-dynamics` kernel settles competing
-withdrawals proportionally, exactly, and without proposal-order effects.
+withdrawals proportionally, because every ecosim process is declared
+`Rationing::Ration`, exactly, and without proposal-order effects.
 
 `FoodWeb` compiles this topology once and advances an exact rational state.
 `DenseFoodWeb` uses the same compiled topology with finite `f64` state for

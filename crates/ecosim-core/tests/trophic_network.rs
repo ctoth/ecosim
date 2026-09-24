@@ -361,7 +361,7 @@ fn balanced_but_misrouted_state_change_fails_the_transition_equation() {
             "refuge" => amount - ratio(1, 1),
             _ => amount.clone(),
         };
-        (axis.clone(), kind.clone(), corrupted)
+        (axis.clone(), kind, corrupted)
     }))
     .unwrap();
     let record = TransitionRecord::new(plan.stock_flow_carrier(), data).unwrap();
@@ -393,7 +393,7 @@ fn balanced_feeding_with_the_wrong_partition_fails_its_process_constraint() {
             } else {
                 amount.clone()
             };
-            (flow.clone(), kind.clone(), corrupted)
+            (flow.clone(), kind, corrupted)
         }))
         .unwrap();
     let record = TransitionRecord::new(plan.stock_flow_carrier(), data).unwrap();
@@ -402,7 +402,7 @@ fn balanced_feeding_with_the_wrong_partition_fails_its_process_constraint() {
     let sentence = LinearFlowConstraint::new(
         plan.stock_flow_carrier(),
         SentenceId::new("feeding-counterexample").unwrap(),
-        conservation_core::KindId::new("material-equivalent").unwrap(),
+        ecosim_core::EcosimKind::MATERIAL,
         [(assimilation, ratio(1, 4)), (waste, ratio(-3, 4))],
         ratio(0, 1),
     )
@@ -431,7 +431,7 @@ fn unchanged_input_ledger_with_settled_input_fails_boundary_correspondence() {
             } else {
                 amount.clone()
             };
-            (ledger.clone(), kind.clone(), corrupted)
+            (ledger.clone(), kind, corrupted)
         }))
         .unwrap();
     let record = TransitionRecord::new(plan.stock_flow_carrier(), data).unwrap();
@@ -499,7 +499,7 @@ fn swapping_two_harvest_ledger_attributions_fails_both_port_correspondences() {
             } else {
                 amount.clone()
             };
-            (ledger.clone(), kind.clone(), misattributed)
+            (ledger.clone(), kind, misattributed)
         }))
         .unwrap();
     let record = TransitionRecord::new(plan.stock_flow_carrier(), data).unwrap();

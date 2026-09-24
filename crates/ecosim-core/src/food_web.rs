@@ -4,7 +4,6 @@ use std::error::Error;
 use std::fmt;
 use std::sync::{Arc, OnceLock};
 
-use conservation_core::KindId;
 use conservation_dynamics::{
     CompiledSettlementReport, DenseState, DenseTolerance, ExactState, FlowSpec, FlowTopology,
     ProcessId, SettlementReport, StockDefinition, StockFlowError, StockId,
@@ -12,11 +11,13 @@ use conservation_dynamics::{
 use num_rational::BigRational;
 use num_traits::{Signed, Zero};
 
+use crate::kinds::EcosimKind;
+use crate::settlement::rationed;
+
 const NUTRIENT: &str = "nutrient";
 const PRODUCER: &str = "producer";
 const CONSUMER: &str = "consumer";
 const DETRITUS: &str = "detritus";
-const MATERIAL: &str = "material-equivalent";
 
 const NUTRIENT_INPUT: &str = "nutrient-input";
 const PRODUCER_GROWTH: &str = "producer-growth";
@@ -252,7 +253,7 @@ pub enum FoodWebError {
     /// A half-saturation constant was zero or negative.
     NonpositiveHalfSaturation,
     /// The generic stock-flow foundation rejected internally generated data.
-    Settlement(StockFlowError),
+    Settlement(StockFlowError<EcosimKind>),
 }
 
 impl fmt::Display for FoodWebError {
@@ -271,8 +272,8 @@ impl fmt::Display for FoodWebError {
 
 impl Error for FoodWebError {}
 
-impl From<StockFlowError> for FoodWebError {
-    fn from(value: StockFlowError) -> Self {
+impl From<StockFlowError<EcosimKind>> for FoodWebError {
+    fn from(value: StockFlowError<EcosimKind>) -> Self {
         Self::Settlement(value)
     }
 }
@@ -280,7 +281,7 @@ impl From<StockFlowError> for FoodWebError {
 /// Exact observations from one settled model step.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FoodWebStep {
-    settlement: SettlementReport,
+    settlement: SettlementReport<EcosimKind>,
     elapsed: BigRational,
 }
 
@@ -298,7 +299,7 @@ impl FoodWebStep {
     }
 
     /// Gives access to the complete typed settlement evidence.
-    pub fn settlement(&self) -> &SettlementReport {
+    pub fn settlement(&self) -> &SettlementReport<EcosimKind> {
         &self.settlement
     }
 }
@@ -306,7 +307,7 @@ impl FoodWebStep {
 /// A well-mixed, discrete-time four-stock food-web model using exact arithmetic.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FoodWeb {
-    state: ExactState,
+    state: ExactState<EcosimKind>,
     parameters: FoodWebParameters,
     time: BigRational,
 }
@@ -363,17 +364,17 @@ impl FoodWeb {
 
     /// Exact cumulative material-equivalent boundary input.
     pub fn inputs(&self) -> BigRational {
-        self.state.inputs(&material_kind())
+        self.state.inputs(EcosimKind::MATERIAL)
     }
 
     /// Exact cumulative material-equivalent boundary output.
     pub fn outputs(&self) -> BigRational {
-        self.state.outputs(&material_kind())
+        self.state.outputs(EcosimKind::MATERIAL)
     }
 
     /// Exact open-system accounting residual.
     pub fn balance_residual(&self) -> BigRational {
-        self.state.balance_residual(&material_kind())
+        self.state.balance_residual(EcosimKind::MATERIAL)
     }
 
     /// Whether the exact open-system accounting residual is zero.
@@ -409,7 +410,7 @@ impl FoodWeb {
 /// Observations from one dense model step.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DenseFoodWebStep {
-    settlement: CompiledSettlementReport<f64>,
+    settlement: CompiledSettlementReport<f64, EcosimKind>,
     elapsed: f64,
 }
 
@@ -428,7 +429,7 @@ impl DenseFoodWebStep {
     }
 
     /// Complete requested and applied arrays in stable flow-slot order.
-    pub fn settlement(&self) -> &CompiledSettlementReport<f64> {
+    pub fn settlement(&self) -> &CompiledSettlementReport<f64, EcosimKind> {
         &self.settlement
     }
 }
@@ -436,7 +437,7 @@ impl DenseFoodWebStep {
 /// A binary64 twin of [`FoodWeb`] for long trajectories and ensembles.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DenseFoodWeb {
-    state: DenseState,
+    state: DenseState<EcosimKind>,
     parameters: DenseFoodWebParameters,
     time: f64,
 }
@@ -495,23 +496,23 @@ impl DenseFoodWeb {
 
     /// Cumulative material-equivalent boundary input.
     pub fn inputs(&self) -> f64 {
-        self.state.inputs(&material_kind())
+        self.state.inputs(EcosimKind::MATERIAL)
     }
 
     /// Cumulative material-equivalent boundary output.
     pub fn outputs(&self) -> f64 {
-        self.state.outputs(&material_kind())
+        self.state.outputs(EcosimKind::MATERIAL)
     }
 
     /// Floating-point open-system accounting residual.
     pub fn balance_residual(&self) -> f64 {
-        self.state.balance_residual(&material_kind())
+        self.state.balance_residual(EcosimKind::MATERIAL)
     }
 
     /// Whether accounting is balanced within the dense engine's explicit budget.
     pub fn is_balanced(&self) -> bool {
         self.state
-            .balance_within(&material_kind(), DenseTolerance::default())
+            .balance_within(EcosimKind::MATERIAL, DenseTolerance::default())
     }
 
     /// Settles one simultaneous dense process batch atomically.
@@ -660,35 +661,36 @@ fn dense_saturating_process(
     maximum_rate * response * actor * elapsed
 }
 
-fn food_web_topology() -> Arc<FlowTopology> {
-    static TOPOLOGY: OnceLock<Arc<FlowTopology>> = OnceLock::new();
+fn food_web_topology() -> Arc<FlowTopology<EcosimKind>> {
+    static TOPOLOGY: OnceLock<Arc<FlowTopology<EcosimKind>>> = OnceLock::new();
     Arc::clone(TOPOLOGY.get_or_init(|| {
-        let kind = material_kind();
+        let flows = flow_specs();
+        let processes = rationed(&flows);
         Arc::new(
             FlowTopology::new(
                 [
-                    stock_definition(NUTRIENT, &kind),
-                    stock_definition(PRODUCER, &kind),
-                    stock_definition(CONSUMER, &kind),
-                    stock_definition(DETRITUS, &kind),
+                    stock_definition(NUTRIENT),
+                    stock_definition(PRODUCER),
+                    stock_definition(CONSUMER),
+                    stock_definition(DETRITUS),
                 ],
-                flow_specs(),
+                flows,
+                processes,
             )
             .expect("the fixed food-web topology is valid"),
         )
     }))
 }
 
-fn flow_specs() -> [FlowSpec; 7] {
-    let kind = material_kind();
+fn flow_specs() -> [FlowSpec<EcosimKind>; 7] {
     [
-        flow_spec(NUTRIENT_INPUT, None, Some(NUTRIENT), &kind),
-        flow_spec(PRODUCER_GROWTH, Some(NUTRIENT), Some(PRODUCER), &kind),
-        flow_spec(GRAZING, Some(PRODUCER), Some(CONSUMER), &kind),
-        flow_spec(PRODUCER_MORTALITY, Some(PRODUCER), Some(DETRITUS), &kind),
-        flow_spec(CONSUMER_MORTALITY, Some(CONSUMER), Some(DETRITUS), &kind),
-        flow_spec(DECOMPOSITION, Some(DETRITUS), Some(NUTRIENT), &kind),
-        flow_spec(HARVEST, Some(CONSUMER), None, &kind),
+        flow_spec(NUTRIENT_INPUT, None, Some(NUTRIENT)),
+        flow_spec(PRODUCER_GROWTH, Some(NUTRIENT), Some(PRODUCER)),
+        flow_spec(GRAZING, Some(PRODUCER), Some(CONSUMER)),
+        flow_spec(PRODUCER_MORTALITY, Some(PRODUCER), Some(DETRITUS)),
+        flow_spec(CONSUMER_MORTALITY, Some(CONSUMER), Some(DETRITUS)),
+        flow_spec(DECOMPOSITION, Some(DETRITUS), Some(NUTRIENT)),
+        flow_spec(HARVEST, Some(CONSUMER), None),
     ]
 }
 
@@ -706,17 +708,17 @@ fn process_flow_index(process: &str) -> Option<usize> {
     .position(|candidate| *candidate == process)
 }
 
-fn stock_definition(name: &str, kind: &KindId) -> StockDefinition {
+fn stock_definition(name: &str) -> StockDefinition<EcosimKind> {
     StockDefinition {
         id: stock_id(name),
-        kind: kind.clone(),
+        kind: EcosimKind::MATERIAL,
     }
 }
 
-fn flow_spec(process: &str, source: Option<&str>, target: Option<&str>, kind: &KindId) -> FlowSpec {
+fn flow_spec(process: &str, source: Option<&str>, target: Option<&str>) -> FlowSpec<EcosimKind> {
     FlowSpec {
         process: process_id(process),
-        kind: kind.clone(),
+        kind: EcosimKind::MATERIAL,
         source: source.map(stock_id),
         target: target.map(stock_id),
     }
@@ -760,14 +762,30 @@ fn ratio(numerator: i64, denominator: i64) -> BigRational {
     BigRational::new(numerator.into(), denominator.into())
 }
 
-fn material_kind() -> KindId {
-    KindId::new(MATERIAL).expect("literal kind identifier is nonblank")
-}
-
 fn stock_id(value: &str) -> StockId {
     StockId::new(value).expect("literal stock identifier is nonblank")
 }
 
 fn process_id(value: &str) -> ProcessId {
     ProcessId::new(value).expect("literal process identifier is nonblank")
+}
+
+#[cfg(test)]
+mod rationing_tests {
+    use conservation_dynamics::Rationing;
+
+    use super::food_web_topology;
+
+    #[test]
+    fn food_web_processes_are_all_declared_rationed() {
+        let topology = food_web_topology();
+        assert_eq!(topology.processes().len(), 7);
+        for process in topology.processes() {
+            assert_eq!(
+                topology.rationing(process),
+                Some(Rationing::Ration),
+                "{process:?}"
+            );
+        }
+    }
 }

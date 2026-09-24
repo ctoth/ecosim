@@ -120,7 +120,8 @@ Lagrangian, symmetry, equations of motion, and momentum map.
 - paired-run ecosystem experiment sentences.
 
 `bridgman` remains separate. Quantity kinds in the first stock–flow slice use
-the existing exact `KindId` carrier. Dimensional analysis may later validate
+`EcosimKind`, ecosim's `conservation_core::Kind` handle, declared through its
+`EcosimKinds` registry. Dimensional analysis may later validate
 kinetic expressions through an adapter, but the conservation and institution
 crates must not acquire a Python package dependency or conflate dimension
 checking with conservation satisfaction.
@@ -141,9 +142,9 @@ A candidate shared shape is:
 
 ```text
 StockFlowSignature
-    stock axes: AxisId -> KindId
-    internal flow symbols: FlowId -> KindId
-    boundary flow symbols: BoundaryId -> KindId
+    stock axes: AxisId -> K
+    internal flow symbols: FlowId -> K
+    boundary flow symbols: BoundaryId -> K
     internal effects: S
     boundary effects: B
 

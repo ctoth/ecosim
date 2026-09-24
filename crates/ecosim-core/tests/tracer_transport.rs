@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use conservation_dynamics::Rationing;
 use conservation_stock_flow::{ExactAmounts, TransitionRecord, TransitionTrace};
 use ecosim_core::{
     ConsumerSpec, DenseTrophicNetworkPlan, ExactTrophicNetworkPlan, ExactTrophicTransition,
@@ -514,7 +515,7 @@ fn the_transport_sentence_rejects_zeroed_and_misrouted_tracer_flows() {
             } else {
                 amount.clone()
             };
-            (flow.clone(), kind.clone(), amount)
+            (flow.clone(), kind, amount)
         }))
         .unwrap();
     let record = TransitionRecord::new(&carrier, zeroed).unwrap();
@@ -541,17 +542,18 @@ fn the_transport_sentence_rejects_zeroed_and_misrouted_tracer_flows() {
         .map(|(_, _, amount)| amount.clone())
         .unwrap();
     assert_ne!(growth, mortality);
-    let swap = |amounts: &ExactAmounts<conservation_stock_flow::FlowId>| {
-        ExactAmounts::new(amounts.iter().map(|(flow, kind, amount)| {
-            let amount = match flow.as_str() {
-                "growth:algae:nitrogen" => mortality.clone(),
-                "mortality:algae:nitrogen" => growth.clone(),
-                _ => amount.clone(),
-            };
-            (flow.clone(), kind.clone(), amount)
-        }))
-        .unwrap()
-    };
+    let swap =
+        |amounts: &ExactAmounts<conservation_stock_flow::FlowId, ecosim_core::EcosimKind>| {
+            ExactAmounts::new(amounts.iter().map(|(flow, kind, amount)| {
+                let amount = match flow.as_str() {
+                    "growth:algae:nitrogen" => mortality.clone(),
+                    "mortality:algae:nitrogen" => growth.clone(),
+                    _ => amount.clone(),
+                };
+                (flow.clone(), kind, amount)
+            }))
+            .unwrap()
+        };
     misrouted.requested_internal = swap(&misrouted.requested_internal);
     misrouted.settled_internal = swap(&misrouted.settled_internal);
     let record = TransitionRecord::new(&carrier, misrouted).unwrap();
@@ -731,4 +733,25 @@ fn declaration_order_never_changes_the_compiled_plan() {
     );
     assert_eq!(forward.tracer_kinds(), ["carbon", "nitrogen"]);
     assert_eq!(reversed.tracer_kinds(), ["carbon", "nitrogen"]);
+}
+
+#[test]
+fn trophic_processes_are_all_declared_rationed() {
+    let plan = ExactTrophicNetworkPlan::compile(exact_spec(vec!["nitrogen".to_owned()])).unwrap();
+    let topology = plan.stock_flow_carrier().topology();
+    assert!(!topology.processes().is_empty());
+    assert!(
+        topology
+            .processes()
+            .iter()
+            .any(|process| process.as_str().contains("nitrogen")),
+        "the tracer-suffixed processes are declared too"
+    );
+    for process in topology.processes() {
+        assert_eq!(
+            topology.rationing(process),
+            Some(Rationing::Ration),
+            "{process:?}"
+        );
+    }
 }

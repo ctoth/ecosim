@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fmt;
 use std::sync::Arc;
 
-use conservation_core::{AxisId, KindId};
+use conservation_core::AxisId;
 use conservation_dynamics::{FlowSpec, FlowTopology, ProcessId, StockDefinition, StockId};
 use conservation_stock_flow::{
     BoundaryCorrespondence, BoundaryId, ChannelId, ExactAmounts, FlowId, LedgerDefinition,
@@ -14,24 +14,27 @@ use conservation_stock_flow::{
 };
 use num_rational::BigRational;
 
+use crate::kinds::{EcosimKind, EcosimKinds};
+use crate::settlement::rationed;
+
 /// A mathematical fixture, not an empirically calibrated ecosystem.
 #[derive(Debug)]
 pub struct SyntheticMultikindFixture {
-    carrier: Arc<StockFlowCarrier>,
-    trace: TransitionTrace,
+    carrier: Arc<StockFlowCarrier<EcosimKind>>,
+    trace: TransitionTrace<EcosimKind>,
     transition_sentence: TransitionEquation,
     boundary_sentences: Vec<BoundaryCorrespondence>,
-    open_balances: Vec<OpenBalance>,
+    open_balances: Vec<OpenBalance<EcosimKind>>,
 }
 
 impl SyntheticMultikindFixture {
     /// Exact typed carrier defining the fixture's system boundary.
-    pub fn carrier(&self) -> &Arc<StockFlowCarrier> {
+    pub fn carrier(&self) -> &Arc<StockFlowCarrier<EcosimKind>> {
         &self.carrier
     }
 
     /// One exact transition with explicit inputs, heat, work, and exports.
-    pub fn trace(&self) -> &TransitionTrace {
+    pub fn trace(&self) -> &TransitionTrace<EcosimKind> {
         &self.trace
     }
 
@@ -46,7 +49,7 @@ impl SyntheticMultikindFixture {
     }
 
     /// Separate checked C, N, P, and stored-energy open balances.
-    pub fn open_balances(&self) -> &[OpenBalance] {
+    pub fn open_balances(&self) -> &[OpenBalance<EcosimKind>] {
         &self.open_balances
     }
 }
@@ -78,27 +81,28 @@ pub fn synthetic_multikind_fixture() -> Result<SyntheticMultikindFixture, Synthe
         .map(|(name, key)| {
             Ok(StockDefinition {
                 id: stock(name)?,
-                kind: kinds[*key].clone(),
+                kind: kinds[*key],
             })
         })
         .collect::<Result<Vec<_>, SyntheticFixtureError>>()?;
 
     let flows = vec![
-        input("c-input", "c-available", &kinds["c"])?,
-        transfer("c-incorporation", "c-available", "c-biomass", &kinds["c"])?,
-        output("c-export", "c-biomass", &kinds["c"])?,
-        input("n-input", "n-available", &kinds["n"])?,
-        transfer("n-incorporation", "n-available", "n-biomass", &kinds["n"])?,
-        output("n-export", "n-biomass", &kinds["n"])?,
-        input("p-input", "p-available", &kinds["p"])?,
-        transfer("p-incorporation", "p-available", "p-biomass", &kinds["p"])?,
-        output("p-export", "p-biomass", &kinds["p"])?,
-        input("energy-input", "energy-stored", &kinds["e"])?,
-        output("energy-heat", "energy-stored", &kinds["e"])?,
-        output("energy-work", "energy-stored", &kinds["e"])?,
-        output("energy-export", "energy-stored", &kinds["e"])?,
+        input("c-input", "c-available", kinds["c"])?,
+        transfer("c-incorporation", "c-available", "c-biomass", kinds["c"])?,
+        output("c-export", "c-biomass", kinds["c"])?,
+        input("n-input", "n-available", kinds["n"])?,
+        transfer("n-incorporation", "n-available", "n-biomass", kinds["n"])?,
+        output("n-export", "n-biomass", kinds["n"])?,
+        input("p-input", "p-available", kinds["p"])?,
+        transfer("p-incorporation", "p-available", "p-biomass", kinds["p"])?,
+        output("p-export", "p-biomass", kinds["p"])?,
+        input("energy-input", "energy-stored", kinds["e"])?,
+        output("energy-heat", "energy-stored", kinds["e"])?,
+        output("energy-work", "energy-stored", kinds["e"])?,
+        output("energy-export", "energy-stored", kinds["e"])?,
     ];
-    let topology = Arc::new(FlowTopology::new(stocks, flows)?);
+    let processes = rationed(&flows);
+    let topology = Arc::new(FlowTopology::new(stocks, flows, processes)?);
     let stock_axes = stock_specs
         .iter()
         .map(|(name, _)| {
@@ -143,7 +147,7 @@ pub fn synthetic_multikind_fixture() -> Result<SyntheticMultikindFixture, Synthe
             Ok(LedgerDefinition {
                 id: ledger(name)?,
                 axis: axis(&format!("cumulative-{name}"))?,
-                kind: kinds[*key].clone(),
+                kind: kinds[*key],
                 boundaries: ports
                     .iter()
                     .map(|port| boundary_id(port))
@@ -275,7 +279,7 @@ pub fn synthetic_multikind_fixture() -> Result<SyntheticMultikindFixture, Synthe
         .map(|(name, key, axes)| {
             let certificate = certify_nullspace(
                 &carrier,
-                kinds[*key].clone(),
+                kinds[*key],
                 axes.iter()
                     .map(|name| Ok((axis(name)?, q(1))))
                     .collect::<Result<Vec<_>, SyntheticFixtureError>>()?,
@@ -299,9 +303,9 @@ pub enum SyntheticFixtureError {
     /// A stable identifier was rejected.
     Identifier(String),
     /// The settlement topology rejected an incompatible stock/flow declaration.
-    Topology(conservation_dynamics::StockFlowError),
+    Topology(conservation_dynamics::StockFlowError<EcosimKind>),
     /// The exact carrier or record was structurally invalid.
-    Carrier(StockFlowError),
+    Carrier(StockFlowError<EcosimKind>),
 }
 
 impl fmt::Display for SyntheticFixtureError {
@@ -316,14 +320,14 @@ impl fmt::Display for SyntheticFixtureError {
 
 impl Error for SyntheticFixtureError {}
 
-impl From<conservation_dynamics::StockFlowError> for SyntheticFixtureError {
-    fn from(value: conservation_dynamics::StockFlowError) -> Self {
+impl From<conservation_dynamics::StockFlowError<EcosimKind>> for SyntheticFixtureError {
+    fn from(value: conservation_dynamics::StockFlowError<EcosimKind>) -> Self {
         Self::Topology(value)
     }
 }
 
-impl From<StockFlowError> for SyntheticFixtureError {
-    fn from(value: StockFlowError) -> Self {
+impl From<StockFlowError<EcosimKind>> for SyntheticFixtureError {
+    fn from(value: StockFlowError<EcosimKind>) -> Self {
         Self::Carrier(value)
     }
 }
@@ -332,8 +336,8 @@ fn identifier<T>(result: Result<T, impl fmt::Display>) -> Result<T, SyntheticFix
     result.map_err(|error| SyntheticFixtureError::Identifier(error.to_string()))
 }
 
-fn kind(name: &str) -> Result<KindId, SyntheticFixtureError> {
-    identifier(KindId::new(name))
+fn kind(name: &str) -> Result<EcosimKind, SyntheticFixtureError> {
+    identifier(EcosimKinds::declare(name))
 }
 fn stock(name: &str) -> Result<StockId, SyntheticFixtureError> {
     identifier(StockId::new(name))
@@ -357,18 +361,26 @@ fn sentence(name: &str) -> Result<SentenceId, SyntheticFixtureError> {
     identifier(SentenceId::new(name))
 }
 
-fn input(name: &str, target: &str, kind: &KindId) -> Result<FlowSpec, SyntheticFixtureError> {
+fn input(
+    name: &str,
+    target: &str,
+    kind: EcosimKind,
+) -> Result<FlowSpec<EcosimKind>, SyntheticFixtureError> {
     Ok(FlowSpec {
         process: process(name)?,
-        kind: kind.clone(),
+        kind,
         source: None,
         target: Some(stock(target)?),
     })
 }
-fn output(name: &str, source: &str, kind: &KindId) -> Result<FlowSpec, SyntheticFixtureError> {
+fn output(
+    name: &str,
+    source: &str,
+    kind: EcosimKind,
+) -> Result<FlowSpec<EcosimKind>, SyntheticFixtureError> {
     Ok(FlowSpec {
         process: process(name)?,
-        kind: kind.clone(),
+        kind,
         source: Some(stock(source)?),
         target: None,
     })
@@ -377,11 +389,11 @@ fn transfer(
     name: &str,
     source: &str,
     target: &str,
-    kind: &KindId,
-) -> Result<FlowSpec, SyntheticFixtureError> {
+    kind: EcosimKind,
+) -> Result<FlowSpec<EcosimKind>, SyntheticFixtureError> {
     Ok(FlowSpec {
         process: process(name)?,
-        kind: kind.clone(),
+        kind,
         source: Some(stock(source)?),
         target: Some(stock(target)?),
     })
@@ -398,46 +410,46 @@ fn q(value: i64) -> BigRational {
 }
 
 fn amounts_axis(
-    kinds: &BTreeMap<&str, KindId>,
+    kinds: &BTreeMap<&str, EcosimKind>,
     values: &[(&str, &str, i64)],
-) -> Result<ExactAmounts<AxisId>, SyntheticFixtureError> {
+) -> Result<ExactAmounts<AxisId, EcosimKind>, SyntheticFixtureError> {
     Ok(ExactAmounts::new(
         values
             .iter()
-            .map(|(name, key, value)| Ok((axis(name)?, kinds[key].clone(), q(*value))))
+            .map(|(name, key, value)| Ok((axis(name)?, kinds[key], q(*value))))
             .collect::<Result<Vec<_>, SyntheticFixtureError>>()?,
     )?)
 }
 fn amounts_flow(
-    kinds: &BTreeMap<&str, KindId>,
+    kinds: &BTreeMap<&str, EcosimKind>,
     values: &[(&str, &str, i64)],
-) -> Result<ExactAmounts<FlowId>, SyntheticFixtureError> {
+) -> Result<ExactAmounts<FlowId, EcosimKind>, SyntheticFixtureError> {
     Ok(ExactAmounts::new(
         values
             .iter()
-            .map(|(name, key, value)| Ok((internal_id(name)?, kinds[key].clone(), q(*value))))
+            .map(|(name, key, value)| Ok((internal_id(name)?, kinds[key], q(*value))))
             .collect::<Result<Vec<_>, SyntheticFixtureError>>()?,
     )?)
 }
 fn amounts_boundary(
-    kinds: &BTreeMap<&str, KindId>,
+    kinds: &BTreeMap<&str, EcosimKind>,
     values: &[(&str, &str, i64)],
-) -> Result<ExactAmounts<BoundaryId>, SyntheticFixtureError> {
+) -> Result<ExactAmounts<BoundaryId, EcosimKind>, SyntheticFixtureError> {
     Ok(ExactAmounts::new(
         values
             .iter()
-            .map(|(name, key, value)| Ok((boundary_id(name)?, kinds[key].clone(), q(*value))))
+            .map(|(name, key, value)| Ok((boundary_id(name)?, kinds[key], q(*value))))
             .collect::<Result<Vec<_>, SyntheticFixtureError>>()?,
     )?)
 }
 fn amounts_ledger(
-    kinds: &BTreeMap<&str, KindId>,
+    kinds: &BTreeMap<&str, EcosimKind>,
     values: &[(&str, &str, i64)],
-) -> Result<ExactAmounts<LedgerId>, SyntheticFixtureError> {
+) -> Result<ExactAmounts<LedgerId, EcosimKind>, SyntheticFixtureError> {
     Ok(ExactAmounts::new(
         values
             .iter()
-            .map(|(name, key, value)| Ok((ledger(name)?, kinds[key].clone(), q(*value))))
+            .map(|(name, key, value)| Ok((ledger(name)?, kinds[key], q(*value))))
             .collect::<Result<Vec<_>, SyntheticFixtureError>>()?,
     )?)
 }
